@@ -2,6 +2,7 @@
 use std::{io::{BufRead, BufReader, Write}, process::{Child, ChildStdin, ChildStdout, Command, Stdio}, sync::{Arc, Mutex}};
 use tauri::{Manager, State};
 use serde_json::Value;
+mod updates;
 struct Bridge { child: Child, input: Option<ChildStdin>, output: BufReader<ChildStdout> }
 impl Drop for Bridge {
     fn drop(&mut self) {
@@ -71,7 +72,7 @@ async fn rpc(app: tauri::AppHandle, backend: State<'_, Backend>, request: Value)
     }).await.map_err(|e| e.to_string())?
 }
 fn main() {
-    tauri::Builder::default().manage(Backend(Arc::new(Mutex::new(None)))).invoke_handler(tauri::generate_handler![rpc])
+    tauri::Builder::default().plugin(tauri_plugin_updater::Builder::new().build()).manage(updates::Updates::default()).manage(Backend(Arc::new(Mutex::new(None)))).invoke_handler(tauri::generate_handler![rpc, updates::update_status, updates::app_update])
         .build(tauri::generate_context!()).expect("Unable to build Agent Control Center")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::ExitRequested { .. }) {

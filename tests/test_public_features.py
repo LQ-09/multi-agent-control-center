@@ -58,6 +58,21 @@ class EnvironmentTests(unittest.TestCase):
         with patch('bridge.threading.Thread.start'),patch('bridge.version',return_value={}):self.b=Bridge(self.tmp.name)
     def tearDown(self):self.b.local.close();self.b.demo.close();self.tmp.cleanup()
     def task(self):return self.b.dispatch({'op':'create','args':{'key':'one','title':'Task','prompt':'Review','acceptance':'Evidence','workspace':self.tmp.name,'agents':['codex']*3}})['id']
+    def test_update_locks_mutations_and_failure_unlocks(self):
+        ident=self.task()
+        self.assertTrue(self.b.dispatch({'op':'prepare_update'})['ready'])
+        with self.assertRaises(ValueError):self.b.dispatch({'op':'control','args':{'id':ident,'action':'run','revision':1}})
+        self.assertEqual(self.b.dispatch({'op':'snapshot'})['tasks'][0]['id'],ident)
+        self.b.dispatch({'op':'abort_update'})
+        self.b.dispatch({'op':'control','args':{'id':ident,'action':'run','revision':1}})
+        with self.assertRaises(ValueError):self.b.dispatch({'op':'prepare_update'})
+        self.assertFalse(self.b.update_pending)
+    def test_update_refuses_unknown_remote_and_active_worker(self):
+        self.b.active=True
+        with self.assertRaises(ValueError):self.b.dispatch({'op':'prepare_update'})
+        self.b.active=False;self.b.config['mode']='live';self.b.connected=False
+        with self.assertRaises(ValueError):self.b.dispatch({'op':'prepare_update'})
+        self.assertFalse(self.b.update_pending)
     def test_fresh_install_is_local_and_never_opens_ssh(self):
         with patch('bridge.Remote') as remote:
             state=self.b.dispatch({'op':'snapshot'})

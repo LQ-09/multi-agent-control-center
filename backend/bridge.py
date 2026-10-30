@@ -72,7 +72,7 @@ class Bridge:
         self.local=Store(self.cache/'local',host='local')
         self.providers=Providers(self.cache/'local')
         self.remote=None; self.connected=self.config['mode']=='local'; self.info=None
-        self.error=None; self.active=False; self.stop=False; self.last_live=None
+        self.update_pending=False; self.error=None; self.active=False; self.stop=False; self.last_live=None
         self.needs_connect=self.config['mode']=='live'
         self.local_agents={a:version(a) for a in ('codex','claude')}
         self.execution_lock=threading.RLock()
@@ -87,7 +87,8 @@ class Bridge:
         while not self.stop:
             try:
                 with self.execution_lock:
-                    if self.config['mode'] in ('demo','local'):
+                    if self.update_pending: pass
+                    elif self.config['mode'] in ('demo','local'):
                         if not self.active:
                             s=(self.call('claim',{'host':'mac'}) or self.call('claim',{'host':'windows'})) if self.config['mode']=='demo' else self.call('claim',{'host':'local'})
                             if s: self.start(s,self.config['mode']=='demo')
@@ -129,6 +130,17 @@ class Bridge:
         with self.execution_lock: return self._dispatch(r)
     def _dispatch(self,r):
         op=r.get('op'); args=r.get('args',{})
+        if op=='prepare_update':
+            if self.config['mode']=='live' and (not self.connected or self.needs_connect):
+                raise ValueError('Reconnect the remote environment before updating; task state is unknown.')
+            self.idle()
+            self.update_pending=True
+            return {'ready':True}
+        if op=='abort_update':
+            self.update_pending=False
+            return {'ready':False}
+        if self.update_pending and op!='snapshot':
+            raise ValueError('Application update in progress; task changes are temporarily locked.')
         if op=='snapshot':
             stale=False
             try:

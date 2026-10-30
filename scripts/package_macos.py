@@ -34,4 +34,18 @@ subprocess.run(['pkgbuild', '--root', str(stage), '--component-plist', str(compo
     '--install-location', '/Applications', '--identifier', 'dev.ling.agent-control-center',
     '--version', version, str(output)], check=True)
 print(output)
+# Archive exactly the verified app, not the metadata-mutated build directory.
+archive = root/f'build/Agent-Control-Center-{version}-darwin-aarch64.app.tar.gz'
+import os
+subprocess.run(['tar', '-czf', str(archive), '-C', str(stage), app.name], check=True,
+    env={**os.environ, 'COPYFILE_DISABLE':'1'})
+key = os.environ.get('ACC_UPDATER_KEY')
+if not key:
+    raise SystemExit('Set ACC_UPDATER_KEY to the private signing key path; no unsigned update is published.')
+subprocess.run(['npx', 'tauri', 'signer', 'sign', '-f', key, '-p', '', '--app-version', version, str(archive)], check=True)
+manifest={'version':version,'notes':'In-app signed updates, task-safe installation and automatic restart.',
+    'platforms':{'darwin-aarch64':{'url':f'https://github.com/LQ-09/multi-agent-control-center/releases/download/v{version}/{archive.name}',
+    'signature':Path(str(archive)+'.sig').read_text().strip()}}}
+(root/'build/latest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+print(archive)
 temporary.cleanup()

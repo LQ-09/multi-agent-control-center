@@ -14,6 +14,14 @@ The supplied `.pkg` is for **Apple Silicon macOS**. Quit an older running versio
 
 The build is ad-hoc signed, **not Apple Developer ID signed or notarized**. macOS may require explicit confirmation in System Settings → Privacy & Security. There are no Intel Mac, Windows or Linux desktop installers in this release. The Python remote service supports Windows, macOS and Linux; only its local POSIX handshake has been tested here.
 
+## Update without reinstalling
+
+Starting with **0.4.0**, open **Settings → App updates → Check for updates → Install and restart**. The app downloads the signed macOS update from this repository, verifies its signature and signed version, replaces the application and restarts. Settings, databases and native agent sessions remain in their existing locations.
+
+If you currently have 0.3.x or older, quit it and install the 0.4.0 `.pkg` once over the existing app. **Do not uninstall or delete application data.** Later versions can use the in-app updater. Pause/cancel pending work first; updating is refused for active/queued/blocked tasks or an unknown remote state. A failed check/download can be retried. macOS may ask for permission to replace an app in Applications.
+
+The updater covers the desktop and its bundled local backend. Separately deployed SSH workers are not automatically upgraded. Releases remain preview software even when published on the updater's default GitHub release channel.
+
 ## First task: one computer is enough
 
 1. Open the app. New installations select **This computer**; no SSH connection is required.

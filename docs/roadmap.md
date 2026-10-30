@@ -6,7 +6,7 @@ This is an implementation plan, not a list of shipped features.
 
 1. **Connection diagnostics**: staged SSH/auth/Python/protocol/CLI checks, copyable redacted report, explicit configuration migration. Gate: real Mac↔Windows and Mac↔Linux tests, disconnect and reconnect with no duplicate task execution.
 2. **Public onboarding**: first-run CLI/provider detection, custom executable paths, optional worker deployment wizard. Gate: clean Mac can install and complete a task without a terminal when using a text provider.
-3. **Packaging and updates**: Apple Developer ID signing/notarization, verified updater, Intel/Windows/Linux builds. Gate: installed upgrade preserves profiles and state; rollback tested. Requires maintainer signing credentials and CI runners.
+3. **Packaging and updates**: Apple Developer ID signing/notarization, installed-upgrade/rollback acceptance testing, Intel/Windows/Linux builds. Gate: installed upgrade preserves profiles and state; rollback tested. Requires maintainer signing credentials and CI runners.
 4. **Usability/accessibility**: keyboard navigation, theme contrast, screen-reader labels, screenshots from real native UI, multi-language UI. Gate: three themes pass contrast and focus checks on every screen.
 
 ## P1 — Reliable work and context
@@ -30,3 +30,5 @@ Add native Anthropic Messages and OpenAI Responses adapters, explicit capability
 ## Contribution priorities
 
 Reproducible bug reports with redacted diagnostics; contract tests for provider variants; cross-platform release CI; native UI/accessibility testing. Do not report fake percentages of completion. Each milestone needs its own evidence and acceptance gate.
+
+Implemented in 0.4: signed in-app macOS updates, download progress, task quiescence and restart. Installed GUI upgrade validation remains outstanding.
