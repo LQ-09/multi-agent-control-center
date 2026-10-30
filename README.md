@@ -22,6 +22,12 @@ If you currently have 0.3.x or older, quit it and install the 0.4.0 `.pkg` once 
 
 The updater covers the desktop and its bundled local backend. Separately deployed SSH workers are not automatically upgraded. Releases remain preview software even when published on the updater's default GitHub release channel.
 
+## Language and text size
+
+Version 0.5 adds **简体中文 / English** and four text sizes: **100%, 115%, 130%, 150%**. Use the controls in the top bar or **Settings → Appearance** (中文：**设置 → 显示设置**). New display preferences default to Chinese and 115%; selections apply immediately and persist across restarts. Themes remain independent.
+
+Language changes affect interface labels, task states and common messages. Your task text, model output, paths and technical diagnostics are preserved. No content is sent to a translation service. Larger text wraps controls and panels; narrow boards can scroll horizontally.
+
 ## First task: one computer is enough
 
 1. Open the app. New installations select **This computer**; no SSH connection is required.
@@ -194,6 +200,8 @@ Fixed Plan → Execute → Review workflow; explicit human acceptance; read-only
 Native history imports are opt-in and bounded (100 files / 4 MB per scan); parsing covers basic JSONL formats, not every agent/version or desktop database. Same-size in-place rewrites and cross-source deduplication need further work. Imported records are limited in the UI; it is not a complete global search engine.
 
 ## Validation status
+
+Display tests also check bilingual rendered settings, preference persistence, font limits and unchanged paths (`npm run test:display`).
 
 37 automated tests cover task/lease behavior, local routing, environment isolation, SSH command quoting, provider contracts, credential non-persistence, redirects, incomplete responses and cancellation. Source and frozen-backend Demo smoke tests are run during release preparation. API tests use mocked responses; **live DeepSeek/OpenAI/Ollama calls and real cross-host CLI execution are not certified**. Native window interaction and installation still require manual testing. Passing a unit test or compiling the app does not establish those integrations.
 

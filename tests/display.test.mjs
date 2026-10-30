@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+import {mkdtemp,rm,readFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
+const temporary=await mkdtemp(join(tmpdir(),'acc-display-'));
+const storage=new Map();const styles=new Map();
+globalThis.localStorage={getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value)};
+globalThis.document={documentElement:{lang:'',style:{setProperty:(key,value)=>styles.set(key,value)}}};
+try{
+ const outfile=join(temporary,'display.mjs');
+ await build({stdin:{contents:"export * from './src/i18n';export * from './src/display';export * from './src/settings';export {renderToStaticMarkup as render} from 'react-dom/server';export {createElement as h} from 'react';",resolveDir:process.cwd(),loader:'tsx'},outfile,bundle:true,platform:'node',format:'esm',banner:{js:"import {createRequire} from 'node:module';const require=createRequire(import.meta.url);"}});
+ const ui=await import(pathToFileURL(outfile));
+ assert.equal(ui.tr('Settings'),'设置');assert.equal(document.documentElement.lang,'zh-CN');
+ for(const size of ui.fontSizes){ui.setFontSize(size);assert.equal(styles.get('--font-scale'),String(size/100))}
+ ui.setFontSize(900);assert.equal(styles.get('--font-scale'),'1.15');
+ ui.setFontSize(130);ui.setLanguage('en');
+ assert.equal(ui.tr('Settings'),'Settings');assert.equal(document.documentElement.lang,'en');
+ assert.equal(storage.get('acc-language'),'en');assert.equal(storage.get('acc-font-size'),'130');
+ const reload=await import(pathToFileURL(outfile).href+'?reload');assert.equal(reload.tr('Settings'),'Settings');assert.equal(styles.get('--font-scale'),'1.3');
+ const config={mode:'local',profile:'single',remote_os:'posix',ssh_alias:'test-host',windows_python:'python',windows_service:'/tmp/service.py',windows_root:'/tmp/data',mac_workspace:'/Users/test/Running'};
+ const props={config,environments:[],busy:false,connected:true,action:async()=>{}};
+ let rendered=ui.render(ui.h(ui.EnvironmentSettings,props));assert.match(rendered,/Execution environment/);
+ ui.setLanguage('zh');rendered=ui.render(ui.h(ui.EnvironmentSettings,props));assert.match(rendered,/执行环境/);assert.match(rendered,/本机规划工作目录/);assert.match(rendered,/\/Users\/test\/Running/);
+ rendered=ui.render(ui.h(ui.DisplayControls));assert.match(rendered,/字体大小/);assert.match(rendered,/简体中文/);assert.match(rendered,/English/);assert.match(rendered,/150%/);
+ const catalog=JSON.parse(await readFile('src/zh.json','utf8'));
+ for(const key of ['Draft','Queued','Planning','Running','Paused','Blocked','Failed','Verifying','Completed','Cancelled','Waiting for Dependency','Waiting for Approval','Overview','Tasks','History','Artifacts','Hosts','Providers','Settings'])assert.ok(catalog[key],key);
+ assert.equal(ui.tr('Custom task /Users/test/private.txt'),'Custom task /Users/test/private.txt');
+ console.log('PASS: bilingual rendered settings, font bounds, preference persistence and unchanged paths');
+}finally{await rm(temporary,{recursive:true,force:true})}

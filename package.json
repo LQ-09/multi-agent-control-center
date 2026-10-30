@@ -1,13 +1,14 @@
 {
   "name": "agent-control-center",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "node scripts/build.mjs --serve",
     "build": "tsc --noEmit && node scripts/build.mjs",
     "tauri": "tauri",
-    "test": "python3 -m unittest discover -s tests -v"
+    "test": "python3 -m unittest discover -s tests -v",
+    "test:display": "node tests/display.test.mjs"
   },
   "dependencies": {
     "react": "^19.0.0",

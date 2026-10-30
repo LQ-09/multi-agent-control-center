@@ -43,7 +43,7 @@ key = os.environ.get('ACC_UPDATER_KEY')
 if not key:
     raise SystemExit('Set ACC_UPDATER_KEY to the private signing key path; no unsigned update is published.')
 subprocess.run(['npx', 'tauri', 'signer', 'sign', '-f', key, '-p', '', '--app-version', version, str(archive)], check=True)
-manifest={'version':version,'notes':'In-app signed updates, task-safe installation and automatic restart.',
+manifest={'version':version,'notes':'Chinese/English interface and adjustable font sizes. 中英文切换与字体大小设置。',
     'platforms':{'darwin-aarch64':{'url':f'https://github.com/LQ-09/multi-agent-control-center/releases/download/v{version}/{archive.name}',
     'signature':Path(str(archive)+'.sig').read_text().strip()}}}
 (root/'build/latest.json').write_text(json.dumps(manifest,indent=2)+'\n')
