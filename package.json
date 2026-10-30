@@ -1,0 +1,23 @@
+{
+  "name": "agent-control-center",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/build.mjs --serve",
+    "build": "tsc --noEmit && node scripts/build.mjs",
+    "tauri": "tauri",
+    "test": "python3 -m unittest discover -s tests -v"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "~5.9.3",
+    "@tauri-apps/cli": "^2.0.0",
+    "esbuild": "0.28.1"
+  }
+}
