@@ -83,6 +83,7 @@ def run(s, call, mac_workspace=None, demo=False, providers=None):
         if s['agent'].startswith('api:'):
             if providers is None: raise ValueError('API provider is unavailable on this execution host')
             ident=s['agent'][4:]; config=providers.get(ident)
+            providers.validate_model(config,refresh=True)
             report('Text API request: '+config['name']+' / '+config['model']+'. Only task text and handoffs are sent; no filesystem tools.')
             result=queue.Queue(maxsize=1)
             def request():
@@ -99,6 +100,13 @@ def run(s, call, mac_workspace=None, demo=False, providers=None):
                 except queue.Empty: continue
                 if not ok: raise value
                 return call('finish',{**common,'output':value})
+        if s.get('model') or s.get('effort'):
+            from agent_monitor import probe_codex, claude_models
+            from agent_settings import validate_catalog
+            binary=shutil.which(s['agent'])
+            if not binary:raise ValueError('CLI not installed on the execution host')
+            models=probe_codex(binary).get('models',[]) if s['agent']=='codex' else claude_models(binary)
+            validate_catalog(s['agent'],{'model':s.get('model',''),'effort':s.get('effort','')},models)
         cwd=Path(mac_workspace if s['host']=='mac' else s['task']['workspace']).expanduser().resolve()
         if not cwd.is_dir(): raise ValueError('Execution workspace does not exist: '+str(cwd))
         command=argv(s['agent'],s.get('model',''),s.get('effort',''))
@@ -138,6 +146,7 @@ def run(s, call, mac_workspace=None, demo=False, providers=None):
                 session=event.get('thread_id') or event.get('session_id')
                 item=event.get('item',{})
                 if typ=='item.completed' and item.get('type')=='agent_message': output.append(clean(item.get('text',''),20000))
+                if typ=='result' and event.get('is_error'):raise ValueError('CLI rejected the request: '+clean(event.get('result','Model or account error'),1000))
                 if typ=='result' and event.get('result'): output.append(clean(event['result'],20000))
                 report(text,session)
             except json.JSONDecodeError: report(text)

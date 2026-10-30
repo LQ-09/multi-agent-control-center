@@ -24,7 +24,8 @@ try{
  let rendered=ui.render(ui.h(ui.EnvironmentSettings,props));assert.match(rendered,/Execution environment/);
  ui.setLanguage('zh');rendered=ui.render(ui.h(ui.EnvironmentSettings,props));assert.match(rendered,/执行环境/);assert.match(rendered,/本机规划工作目录/);assert.match(rendered,/\/Users\/test\/Running/);
  rendered=ui.render(ui.h(ui.DisplayControls));assert.match(rendered,/字体大小/);assert.match(rendered,/简体中文/);assert.match(rendered,/English/);assert.match(rendered,/150%/);
- rendered=ui.render(ui.h(ui.AgentOptions,{agent:'codex',value:{model:'my-model',effort:'high'},onChange:()=>{},ident:'test',models:[]}));
+ rendered=ui.render(ui.h(ui.AgentOptions,{agent:'codex',value:{model:'my-model',effort:'high'},onChange:()=>{},ident:'test',models:[{id:'my-model',name:'Model',efforts:['high']}] }));
+ assert.doesNotMatch(rendered,/<input/);assert.doesNotMatch(rendered,/ultra/);
  assert.match(rendered,/思考强度/);assert.match(rendered,/my-model/);assert.match(rendered,/value="high" selected/);
  rendered=ui.render(ui.h(ui.UsageSidebar,{status:{hosts:{local:{agents:{codex:{status:'ok',meters:[{label:'300 min',scope:'shared',remaining_percent:42,resets_at:null}],models:[]},claude:{status:'unavailable',reason:'CLI not found on this host.',meters:[],models:[]}}}}},error:'',refresh:()=>{},providers:[],settings:()=>{}}));
  assert.match(rendered,/42/);assert.match(rendered,/此主机未找到/);assert.doesNotMatch(rendered,/100%/);

@@ -340,5 +340,19 @@
   "Open main window": "打开主窗口",
   "Hide floating usage": "隐藏额度悬浮窗",
   "Unknown": "未知",
-  "PREVIEW 0.8 ": "预览版 0.8 "
+  "PREVIEW 0.8 ": "预览版 0.8 ",
+  "Not in current model list": "不在当前模型列表中",
+  "Unsupported": "不支持",
+  "Select a model to see its supported effort levels.": "选择模型后，仅显示该模型支持的思考强度。",
+  "Model list unavailable. Refresh usage or use CLI default.": "模型列表暂不可用，请刷新额度 / 模型列表，或使用 CLI 默认值。",
+  "Key for model discovery (optional)": "查询模型列表的 API Key（可选，仅内存保存）",
+  "Load model list": "加载模型列表",
+  "Select a model": "选择模型",
+  "Provider default": "使用 Provider 默认值",
+  "Only reported effort capabilities with a supported API mapping are offered. Otherwise the provider default is used.": "仅提供接口明确支持且已适配的思考强度；未提供能力信息时使用 Provider 默认值。",
+  "Model list loaded. Select a model below.": "模型列表已加载，请在下方选择。",
+  "Update the remote worker to v0.9 for validated model selection.": "请将远程 Worker 更新到 0.9，以支持模型列表与能力校验。",
+  "Refresh model lists": "刷新模型列表",
+  "Model and reasoning effort come from the provider profile.": "模型与思考强度使用 Provider 配置。",
+  "PREVIEW 0.9 ": "预览版 0.9 "
 }

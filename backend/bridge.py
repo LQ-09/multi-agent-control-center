@@ -168,6 +168,10 @@ class Bridge:
                 else:hosts['remote']=self.call('agent_status',args)
             return {'hosts':hosts,'environment':self.config['ssh_alias'] if self.config['mode']=='live' else ''}
         if op=='save_agent_defaults':
+            if self.config['mode']=='live' and not (self.info or {}).get('model_catalog'):
+                raise ValueError('Update the remote worker to v0.9 for validated model selection.')
+            if self.config['mode']=='local':
+                for agent in ('codex','claude'):self.monitor.validate_selection(agent,args[agent])
             if self.config['mode']=='live' and not (self.info or {}).get('agent_controls'):
                 raise ValueError('Update the remote worker to v0.6 for account and model controls.')
             return self.call(op,args)
@@ -205,10 +209,15 @@ class Bridge:
                 self.connected=False; self.error=clean(e,2000)
                 if self.remote: self.remote.close()
                 raise
+        if self.config['mode']=='live' and op in ('provider_models','save_provider','save_agent_defaults') and not (self.info or {}).get('model_catalog'):
+            raise ValueError('Update the remote worker to v0.9 for validated model selection.')
+        if op=='provider_models':
+            if self.config['mode']=='live':return self.call(op,args)
+            return self.providers.discover_models(args['config'],args.get('key',''))
         if op in ('save_provider','set_provider_key'):
             self.idle()
             if self.config['mode']=='live': return self.call(op,args)
-            if op=='save_provider': return self.providers.save(args)
+            if op=='save_provider': return self.providers.save_checked(args)
             return self.providers.set_key(args['id'],args['key'])
         if op=='scan':
             if self.config['mode']=='demo': raise ValueError('Demo never scans native stores')
@@ -222,6 +231,13 @@ class Bridge:
             if any(o.get('model') or o.get('effort') for o in args['agent_options']):
                 raise ValueError('Update the remote worker to v0.6 for account and model controls.')
         if op=='create' and self.config['mode']!='demo':
+            saved=self.call('snapshot').get('agent_defaults',{})
+            agents=args.get('agents',saved.get('roles',[]))
+            options=args.get('agent_options') or [saved.get(a,{}) for a in agents]
+            if self.config['mode']=='live' and any(o.get('model') or o.get('effort') for o in options) and not (self.info or {}).get('model_catalog'):
+                raise ValueError('Update the remote worker to v0.9 for validated model selection.')
+            for i,(agent,option) in enumerate(zip(agents,options)):
+                if self.config['mode']=='local' or (self.config['profile']=='split' and i!=1):self.monitor.validate_selection(agent,option)
             for i,agent in enumerate(args.get('agents',[])):
                 if agent.startswith('api:'):
                     if self.config['mode']=='live' and self.config['profile']=='split' and i!=1: raise ValueError('Split-mode local planning/review currently requires Codex or Claude CLI')

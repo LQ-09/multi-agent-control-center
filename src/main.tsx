@@ -66,7 +66,7 @@ function App(){
     {view==='Settings'&&data&&<EnvironmentSettings config={data.connection} environments={data.environments} busy={busy} connected={data.connected} action={action}/>}
     {view==='Providers'&&data&&<ProviderSettings providers={data.providers} presets={data.provider_presets} busy={busy} action={action}/>}
     {!data&&!error&&<div className="empty-state">{tr("Starting the application backend…")}</div>}
-    <footer><span><i className="dot green"/>{tr("Local-first. Observable by design.")}</span><span>{tr("PREVIEW 0.8 ")}<b>•</b> {remote?tr("SSH · remote authority"):data?.mode==='local'?tr("Local authority · explicit Run required"):tr("Demo · simulated agents")}</span></footer>
+    <footer><span><i className="dot green"/>{tr("Local-first. Observable by design.")}</span><span>{tr("PREVIEW 0.9 ")}<b>•</b> {remote?tr("SSH · remote authority"):data?.mode==='local'?tr("Local authority · explicit Run required"):tr("Demo · simulated agents")}</span></footer>
    </div>
   </main>
   {modal&&<NewTask defaults={defaults} status={account.status} remote={remote} workspaceKey={JSON.stringify([data?.mode,remote?data?.connection.ssh_alias:'local',remote?data?.connection.windows_root:''])} defaultWorkspace={remote?'':data?.connection.mac_workspace||''} providers={data?.providers||[]} split={!!split} close={()=>setModal(false)} busy={busy} create={async values=>{const result=await action('create',values) as {id:string};setModal(false);setSelected(result.id);setView('Tasks')}}/>}

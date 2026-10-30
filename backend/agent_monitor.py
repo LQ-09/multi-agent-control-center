@@ -112,8 +112,6 @@ def probe_codex(binary):
             deadline=time.monotonic()+25
             p.request(1,'initialize',{'clientInfo':{'name':'agent_control_center','version':'0.6.0'}},deadline)
             p.send({'method':'initialized','params':{}})
-            account=p.request(2,'account/read',{'refreshToken':False},deadline).get('account') or {}
-            result.update(plan=account.get('planType') or account.get('type') or 'unknown',account=account_tag(account.get('email')))
             try:
                 config=p.request(3,'config/read',{'includeLayers':False},deadline).get('config') or {}
                 result['cli_model']=config.get('model');result['cli_effort']=config.get('model_reasoning_effort')
@@ -124,6 +122,8 @@ def probe_codex(binary):
                     'efforts':[x['reasoningEffort'] for x in m.get('supportedReasoningEfforts',[])],
                     'default_effort':m.get('defaultReasoningEffort'),'default':m.get('isDefault',False)} for m in page.get('data',[]) if not m.get('hidden')][:100]
             except ValueError:pass
+            account=p.request(2,'account/read',{'refreshToken':False},deadline).get('account') or {}
+            result.update(plan=account.get('planType') or account.get('type') or 'unknown',account=account_tag(account.get('email')))
             data=p.request(5,'account/rateLimits/read',{},deadline)
             result['meters']=codex_meters(data)
             result['ordinary_usage_allowed']=data.get('ordinaryUsageAllowed')
@@ -134,8 +134,25 @@ def probe_codex(binary):
         finally:p.close()
     return result
 
+def claude_models(binary):
+    with tempfile.TemporaryDirectory(prefix='acc-models-') as cwd:
+        p=JsonProcess([binary,'-p','--input-format','stream-json','--output-format','stream-json','--verbose','--no-session-persistence','--safe-mode','--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}'],cwd)
+        try:
+            p.send({'type':'control_request','request_id':'acc-models','request':{'subtype':'initialize'}})
+            deadline=time.monotonic()+25
+            while True:
+                event=p.next(deadline);response=event.get('response') or {}
+                if event.get('type')=='control_response' and response.get('request_id')=='acc-models':
+                    if response.get('subtype')=='error':raise ValueError('Claude model discovery is unavailable')
+                    return [{'id':m['value'],'name':m.get('displayName',m['value']),
+                        'efforts':m.get('supportedEffortLevels',[]) if m.get('supportsEffort') else [],
+                        'resolved_model':m.get('resolvedModel')} for m in response.get('response',{}).get('models',[]) if m.get('value')][:100]
+        finally:p.close()
+
 def probe_claude(binary):
     result={'source':'Claude Code /usage','models':[],'meters':[]}
+    try:result['models']=claude_models(binary)
+    except (ValueError,TimeoutError,OSError):pass
     with tempfile.TemporaryDirectory(prefix='acc-account-') as cwd:
         version=subprocess.run(windows_argv([binary,'--version']),cwd=cwd,capture_output=True,text=True,timeout=8)
         match=re.search(r'(\d+)\.(\d+)\.(\d+)',version.stdout)
@@ -156,6 +173,8 @@ def probe_claude(binary):
                 if event.get('type')=='result':break
             result['status']='ok' if result['meters'] else 'unavailable'
             if not result['meters']:result['reason']='CLI returned no subscription meters. Check Claude /usage and your login or billing type.'
+        except (ValueError,TimeoutError,OSError):
+            result.update(status='unavailable',reason='Claude usage query unavailable; model discovery is independent.')
         finally:p.close()
     return result
 
@@ -168,6 +187,15 @@ class AgentMonitor:
                 self.started=time.time();self.refreshing=True
                 threading.Thread(target=self._refresh,daemon=True).start()
             return {'refreshing':self.refreshing,'agents':dict(self.rows)}
+    def validate_selection(self,agent,value):
+        from agent_settings import validate_catalog
+        if agent not in ('codex','claude') or not (value.get('model') or value.get('effort')):return
+        row=self.snapshot()['agents'].get(agent,{})
+        checked=timestamp(row.get('checked_at'))
+        if not checked or (datetime.datetime.now(datetime.timezone.utc)-datetime.datetime.fromisoformat(checked)).total_seconds()>300:
+            raise ValueError('Model list is not ready. Refresh models or choose CLI default.')
+        validate_catalog(agent,value,row.get('models',[]))
+
     def _refresh(self):
         def one(agent):
             binary=shutil.which(agent)
