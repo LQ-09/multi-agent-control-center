@@ -189,13 +189,13 @@ Release build and `.pkg` instructions are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Current limits
 
-Fixed Plan → Execute → Review workflow; explicit human acceptance; read-only CLI/tool profiles; text-only APIs; one active authority at a time. No arbitrary planner-generated DAGs, native-session resume, arbitrary tool execution, MCP context server, unattended durable worker service, full offline task queue, Git worktree automation, large artifact transfer, multi-user ACLs, comprehensive backup/restore, updater or notarization yet.
+Fixed Plan → Execute → Review workflow; explicit human acceptance; read-only CLI/tool profiles; text-only APIs; one active authority at a time. No arbitrary planner-generated DAGs, native-session resume, arbitrary tool execution, MCP context server, unattended durable worker service, full offline task queue, Git worktree automation, large artifact transfer, multi-user ACLs, comprehensive backup/restore or notarization yet.
 
 Native history imports are opt-in and bounded (100 files / 4 MB per scan); parsing covers basic JSONL formats, not every agent/version or desktop database. Same-size in-place rewrites and cross-source deduplication need further work. Imported records are limited in the UI; it is not a complete global search engine.
 
 ## Validation status
 
-35 automated tests cover task/lease behavior, local routing, environment isolation, SSH command quoting, provider contracts, credential non-persistence, redirects, incomplete responses and cancellation. Source and frozen-backend Demo smoke tests are run during release preparation. API tests use mocked responses; **live DeepSeek/OpenAI/Ollama calls and real cross-host CLI execution are not certified**. Native window interaction and installation still require manual testing. Passing a unit test or compiling the app does not establish those integrations.
+37 automated tests cover task/lease behavior, local routing, environment isolation, SSH command quoting, provider contracts, credential non-persistence, redirects, incomplete responses and cancellation. Source and frozen-backend Demo smoke tests are run during release preparation. API tests use mocked responses; **live DeepSeek/OpenAI/Ollama calls and real cross-host CLI execution are not certified**. Native window interaction and installation still require manual testing. Passing a unit test or compiling the app does not establish those integrations.
 
 ## License
 
