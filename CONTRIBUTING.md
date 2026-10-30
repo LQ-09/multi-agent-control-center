@@ -5,6 +5,7 @@ Create a branch for one scoped change and open a pull request. Include the concr
 ## Checks
 
 ```sh
+python3 -m pip install -r requirements.txt
 python3 -m unittest discover -s tests -v
 python3 scripts/smoke_demo.py
 npm ci
@@ -14,6 +15,7 @@ npm run build
 ## macOS release build
 
 ```sh
+npm ci
 python3 -m venv .build-venv
 .build-venv/bin/python -m pip install -r requirements-build.txt
 .build-venv/bin/python scripts/bundle_backend.py

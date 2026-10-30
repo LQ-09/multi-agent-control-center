@@ -4,7 +4,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-alias=sys.argv[1] if len(sys.argv)>1 else 'my-worker'
+alias=sys.argv[1] if len(sys.argv)>1 else 'worker'
 if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,80}',alias):raise SystemExit('Use a configured simple SSH alias')
 script="$target = Join-Path $env:USERPROFILE 'AgentControlCenter'; New-Item -ItemType Directory -Force -Path $target | Out-Null; Write-Output $target; python --version; codex --version"
 encoded=base64.b64encode(script.encode('utf-16-le')).decode()

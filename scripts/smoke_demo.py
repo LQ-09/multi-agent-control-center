@@ -15,6 +15,7 @@ with tempfile.TemporaryDirectory() as cache:
         assert r['ok'],r
         return r['data']
     try:
+        call('configure',{'mode':'demo'})
         t=call('create',{'key':'smoke','title':'Read-only orchestration smoke test','prompt':'Review the host boundary','workspace':'C:\\example','acceptance':'Three attributed handoffs; explicit final acceptance.'})
         call('control',{'id':t['id'],'revision':1,'action':'run'})
         deadline=time.monotonic()+20

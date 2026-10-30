@@ -63,7 +63,7 @@ def stop_process(p):
     try: p.wait(timeout=5)
     except subprocess.TimeoutExpired: raise RuntimeError('Process termination not confirmed')
 
-def run(s, call, mac_workspace=None, demo=False):
+def run(s, call, mac_workspace=None, demo=False, providers=None):
     common={'step_id':s['id'],'attempt':s['attempt']}; p=None
     def report(text,session=None): call('record',{**common,'message':text,'key':uid(),'session':session})
     try:
@@ -72,10 +72,29 @@ def run(s, call, mac_workspace=None, demo=False):
                 state=call('pulse',common)
                 if state['stop']: return call('finish',{**common,'output':'','stopped':state['stop'].split()[0]})
                 report('[SIMULATED] '+message); time.sleep(.45)
-            text={'Plan':'1. Inspect the requested scope.\n2. Analyze on the Windows worker.\n3. Review results on Mac.\n4. Ask the user to accept the evidence.',
-                'Execute':'Simulated Windows result. No CLI or external command ran.\nThe demo produced this small handoff to demonstrate cross-host ordering.',
+            text={'Plan':'1. Inspect the requested scope.\n2. Analyze on the selected environment.\n3. Review results.\n4. Ask the user to accept the evidence.',
+                'Execute':'Simulated execution result. No CLI or external command ran.\nThe demo produced this small handoff to demonstrate cross-host ordering.',
                 'Review':'The simulated handoff is internally consistent. This demonstrates orchestration only; no real acceptance tests were executed.'}[s['role']]
             return call('finish',{**common,'output':text})
+        if s['agent'].startswith('api:'):
+            if providers is None: raise ValueError('API provider is unavailable on this execution host')
+            ident=s['agent'][4:]; config=providers.get(ident)
+            report('Text API request: '+config['name']+' / '+config['model']+'. Only task text and handoffs are sent; no filesystem tools.')
+            result=queue.Queue(maxsize=1)
+            def request():
+                try: result.put((True,providers.complete(ident,prompt_for(s))))
+                except Exception as e: result.put((False,e))
+            threading.Thread(target=request,daemon=True).start()
+            start=time.monotonic()
+            while True:
+                state=call('pulse',common)
+                if state['stop']:
+                    return call('finish',{**common,'output':'','stopped':state['stop'].split()[0]})
+                if time.monotonic()-start>90: raise TimeoutError('API step timed out; request outcome unknown. No automatic retry.')
+                try: ok,value=result.get(timeout=2)
+                except queue.Empty: continue
+                if not ok: raise value
+                return call('finish',{**common,'output':value})
         cwd=Path(mac_workspace if s['host']=='mac' else s['task']['workspace']).expanduser().resolve()
         if not cwd.is_dir(): raise ValueError('Execution workspace does not exist: '+str(cwd))
         command=argv(s['agent'])

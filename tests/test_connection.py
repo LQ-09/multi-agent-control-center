@@ -15,6 +15,7 @@ class ConnectionTests(unittest.TestCase):
             self.bridge=Bridge(self.tmp.name)
     def tearDown(self):
         self.bridge.demo.close()
+        self.bridge.local.close()
         self.tmp.cleanup()
     def test_startup_connects_saved_live_settings_once(self):
         remote=MagicMock()

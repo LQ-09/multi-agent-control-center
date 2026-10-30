@@ -30,8 +30,9 @@ def redact(text):
 def clean(value, limit=12000): return redact(str(value))[:limit]
 
 class Store:
-    def __init__(self, root, demo=False):
+    def __init__(self, root, demo=False, host=None):
         self.root = Path(root).resolve(); self.root.mkdir(parents=True, exist_ok=True)
+        self.host = host
         self.demo = demo; self.lock = threading.RLock()
         self.db = sqlite3.connect(self.root/'control.sqlite', check_same_thread=False)
         self.db.row_factory = sqlite3.Row
@@ -77,7 +78,7 @@ class Store:
     def event(self, task, kind, message, step=None, status=None, event_id=None):
         row = self.db.execute('SELECT status FROM tasks WHERE id=?',(task,)).fetchone() if task else None
         self.db.execute('INSERT OR IGNORE INTO events(event_id,task_id,step_id,agent_type,host_id,native_session_id,timestamp_utc,event_type,status,input_summary,output_summary) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
-            (event_id or uid(),task,step['id'] if step else None,step['agent'] if step else 'system',step['host'] if step else 'windows',step.get('session') if step else None,now(),kind,status or (row['status'] if row else 'Imported'),'',clean(message,MAX_LOG)))
+            (event_id or uid(),task,step['id'] if step else None,step['agent'] if step else 'system',step['host'] if step else (self.host or 'windows'),step.get('session') if step else None,now(),kind,status or (row['status'] if row else 'Imported'),'',clean(message,MAX_LOG)))
     def get_task(self, ident):
         row=self.db.execute('SELECT * FROM tasks WHERE id=?',(ident,)).fetchone()
         if row is None: raise ValueError('Task not found')
@@ -87,9 +88,9 @@ class Store:
         workspace=str(data.get('workspace','')).strip(); acceptance=str(data.get('acceptance','')).strip()
         if not title or not prompt or not acceptance: raise ValueError('Title, task brief and acceptance criteria are required.')
         if len(prompt)>12000 or len(title)>160 or len(acceptance)>2000: raise ValueError('Task input is too large.')
-        if not workspace or any(c in workspace for c in '\r\n\x00'): raise ValueError('An explicit Windows workspace is required.')
+        if not workspace or any(c in workspace for c in '\r\n\x00'): raise ValueError('An explicit execution workspace is required.')
         agents=data.get('agents',['codex','codex','claude'])
-        if len(agents)!=3 or any(a not in ('codex','claude') for a in agents): raise ValueError('Choose supported agents for all three roles.')
+        if len(agents)!=3 or any(not isinstance(a,str) or (a not in ('codex','claude') and not re.fullmatch(r'api:[a-z][a-z0-9_-]{0,39}',a)) for a in agents): raise ValueError('Choose supported agents for all three roles.')
         key=data.get('key'); fingerprint=digest(json.dumps(data,sort_keys=True))
         if not key: raise ValueError('Idempotency key required')
         with self.transaction():
@@ -100,7 +101,7 @@ class Store:
             self.reserve(); ident=uid()
             self.db.execute('INSERT INTO tasks(id,title,prompt,status,created,workspace,acceptance,demo) VALUES(?,?,?,?,?,?,?,?)',
                 (ident,clean(title),clean(prompt),'Draft',now(),workspace,clean(acceptance),int(self.demo)))
-            for pos,(role,host) in enumerate([('Plan','mac'),('Execute','windows'),('Review','mac')]):
+            for pos,(role,host) in enumerate([('Plan',self.host or 'mac'),('Execute',self.host or 'windows'),('Review',self.host or 'mac')]):
                 self.db.execute('INSERT INTO steps(id,task_id,position,role,agent,host,status) VALUES(?,?,?,?,?,?,?)',(uid(),ident,pos,role,agents[pos],host,'Pending'))
             self.event(ident,'task.created','Task saved. Execution requires explicit Run. Read-only agent tools in this prototype.')
             result={'id':ident}; self.db.execute('INSERT INTO commands VALUES(?,?,?)',(key,fingerprint,json.dumps(result)))
@@ -127,7 +128,7 @@ class Store:
             self.event(ident,'task.'+action,'Stop requested; awaiting worker acknowledgment.' if active else 'Task '+status.lower(),status=status)
             return {'status':status}
     def claim(self, host):
-        if host not in ('mac','windows'): raise ValueError('Unknown host')
+        if host not in ((self.host,) if self.host else ('mac','windows')): raise ValueError('Unknown host')
         with self.transaction():
             self.reserve()
             # A fixed, inspectable linear DAG in the prototype. General plan DAGs remain a later phase.
