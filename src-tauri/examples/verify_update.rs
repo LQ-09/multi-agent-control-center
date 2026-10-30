@@ -14,7 +14,7 @@ fn main() {
     public.verify(&bytes,&signature,false).unwrap();
     let version=manifest["version"].as_str().unwrap();
     assert_eq!(config["version"].as_str().unwrap(),version);
-    assert!(text.lines().any(|l|l.starts_with("trusted comment:")&&l.split('\t').any(|v|v==format!("app-version:{version}"))));
+    assert!(text.lines().any(|l|l.starts_with("trusted comment:")&&l.split('\t').any(|v|v==format!("version:{version}"))));
     bytes[0]^=1;
     assert!(public.verify(&bytes,&signature,false).is_err(),"Tampered artifact was accepted");
     println!("PASS: release signature, signed version, and tamper rejection");
