@@ -105,7 +105,7 @@ def account_tag(value):
     return hashlib.sha256(str(value).encode()).hexdigest()[:8] if value else None
 
 def probe_codex(binary):
-    result={'source':'Codex account/rateLimits/read','models':[],'meters':[]}
+    result={'source':'Codex account/rateLimits/read','models_source':'Codex app-server model/list','models':[],'meters':[]}
     with tempfile.TemporaryDirectory(prefix='acc-account-') as cwd:
         p=JsonProcess([binary,'app-server','--stdio'],cwd)
         try:
@@ -121,7 +121,8 @@ def probe_codex(binary):
                 result['models']=[{'id':m['model'],'name':m.get('displayName',m['model']),
                     'efforts':[x['reasoningEffort'] for x in m.get('supportedReasoningEfforts',[])],
                     'default_effort':m.get('defaultReasoningEffort'),'default':m.get('isDefault',False)} for m in page.get('data',[]) if not m.get('hidden')][:100]
-            except ValueError:pass
+                result['models_checked_at']=datetime.datetime.now(datetime.timezone.utc).isoformat()
+            except (ValueError,TimeoutError) as e:result['models_error']=str(e)[:200]
             account=p.request(2,'account/read',{'refreshToken':False},deadline).get('account') or {}
             result.update(plan=account.get('planType') or account.get('type') or 'unknown',account=account_tag(account.get('email')))
             data=p.request(5,'account/rateLimits/read',{},deadline)
@@ -150,9 +151,17 @@ def claude_models(binary):
         finally:p.close()
 
 def probe_claude(binary):
-    result={'source':'Claude Code /usage','models':[],'meters':[]}
-    try:result['models']=claude_models(binary)
-    except (ValueError,TimeoutError,OSError):pass
+    result={'source':'Claude Code /usage','models_source':'Claude initialize / supportedModels','models':[],'meters':[]}
+    try:
+        result['models']=claude_models(binary)
+        result['models_checked_at']=datetime.datetime.now(datetime.timezone.utc).isoformat()
+    except Exception as e:result['models_error']=type(e).__name__+': '+str(e)[:180]
+    try:return claude_usage(binary,result)
+    except Exception as e:
+        result.update(status='unavailable',reason=type(e).__name__+': usage query failed; model discovery preserved')
+        return result
+
+def claude_usage(binary,result):
     with tempfile.TemporaryDirectory(prefix='acc-account-') as cwd:
         version=subprocess.run(windows_argv([binary,'--version']),cwd=cwd,capture_output=True,text=True,timeout=8)
         match=re.search(r'(\d+)\.(\d+)\.(\d+)',version.stdout)
@@ -191,7 +200,7 @@ class AgentMonitor:
         from agent_settings import validate_catalog
         if agent not in ('codex','claude') or not (value.get('model') or value.get('effort')):return
         row=self.snapshot()['agents'].get(agent,{})
-        checked=timestamp(row.get('checked_at'))
+        checked=timestamp(row.get('models_checked_at'))
         if not checked or (datetime.datetime.now(datetime.timezone.utc)-datetime.datetime.fromisoformat(checked)).total_seconds()>300:
             raise ValueError('Model list is not ready. Refresh models or choose CLI default.')
         validate_catalog(agent,value,row.get('models',[]))
@@ -202,7 +211,14 @@ class AgentMonitor:
             try:row=(probe_codex(binary) if agent=='codex' else probe_claude(binary)) if binary else {'status':'unavailable','reason':'CLI not found on this host.','meters':[],'models':[]}
             except Exception as e:row={'status':'unavailable','reason':type(e).__name__+': account query failed','meters':[],'models':[]}
             row['checked_at']=datetime.datetime.now(datetime.timezone.utc).isoformat()
-            with self.lock:self.rows[agent]=row
+            row['cli_path']=binary
+            with self.lock:
+                previous=self.rows.get(agent,{})
+                if not row.get('models'):
+                    row['models_error']=row.get('models_error') or row.get('reason') or 'No models returned'
+                    if previous.get('models'):
+                        row.update(models=previous['models'],models_checked_at=previous.get('models_checked_at'),models_source=previous.get('models_source'),models_stale=True)
+                self.rows[agent]=row
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:list(pool.map(one,('codex','claude')))
         finally:

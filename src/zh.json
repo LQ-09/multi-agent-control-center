@@ -354,5 +354,15 @@
   "Update the remote worker to v0.9 for validated model selection.": "请将远程 Worker 更新到 0.9，以支持模型列表与能力校验。",
   "Refresh model lists": "刷新模型列表",
   "Model and reasoning effort come from the provider profile.": "模型与思考强度使用 Provider 配置。",
-  "PREVIEW 0.9 ": "预览版 0.9 "
+  "PREVIEW 0.9 ": "预览版 0.9 ",
+  "Unavailable": "暂不可用",
+  "Click for details": "点击查看详情",
+  "Usage needs refresh": "数据待刷新",
+  "Usage restricted": "额度受限",
+  "No connected agents": "尚无已连接账户",
+  "Model list host": "模型列表来源主机",
+  "Models are queried from the selected CLI host, cached for 5 minutes. Refresh does not query the ChatGPT app model menu.": "列表来自所选主机的 CLI，缓存 5 分钟；不是当前 ChatGPT 软件里的模型菜单。",
+  "Awaiting model discovery": "等待模型查询",
+  "Cached model list — last refresh failed; explicit selections require fresh validation.": "显示上次成功的缓存；本次刷新失败，执行前仍需通过最新校验。",
+  "PREVIEW 0.10 ": "预览版 0.10 "
 }

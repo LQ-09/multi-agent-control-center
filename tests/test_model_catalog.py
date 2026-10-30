@@ -6,6 +6,17 @@ from agent_settings import validate_catalog
 from agent_monitor import AgentMonitor,claude_models
 from providers import Providers
 class CatalogTests(unittest.TestCase):
+    @patch('agent_monitor.claude_usage',side_effect=TimeoutError('usage timeout'))
+    @patch('agent_monitor.claude_models',return_value=[{'id':'opus','name':'Opus','efforts':['high']}])
+    def test_usage_failure_keeps_successful_claude_models(self,models,usage):
+        from agent_monitor import probe_claude
+        row=probe_claude('/mock/claude')
+        self.assertEqual(row['models'][0]['id'],'opus');self.assertTrue(row['models_checked_at'])
+        self.assertEqual(row['status'],'unavailable')
+    @patch('agent_monitor.threading.Thread.start')
+    def test_recent_usage_does_not_make_old_catalog_fresh(self,_):
+        m=AgentMonitor();m.rows={'codex':{'checked_at':'2099-01-01T00:00:00Z','models_checked_at':'2000-01-01T00:00:00Z','models':[{'id':'m','efforts':[]}]}}
+        with self.assertRaises(ValueError):m.validate_selection('codex',{'model':'m','effort':''})
     def test_wrong_agent_model_and_effort_rejected(self):
         models=[{'id':'codex-example','efforts':['low','high']}]
         for value in [{'model':'opus-5.5','effort':''},{'model':'codex-example','effort':'ultra'},{'model':'','effort':'high'}]:

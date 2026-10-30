@@ -32,6 +32,8 @@ try{
  assert.equal(ui.quotaColor(71),'#269b60');assert.equal(ui.quotaColor(70),'#df9225');assert.equal(ui.quotaColor(30),'#df9225');assert.equal(ui.quotaColor(29),'#df4949');assert.equal(ui.quotaColor(null),'#8a8a8a');
  rendered=ui.render(ui.h(ui.QuotaRing,{agent:'codex',value:10}));assert.match(rendered,/#df4949/);assert.match(rendered,/stroke-dasharray/);assert.match(rendered,/10%/);
  rendered=ui.render(ui.h(ui.QuotaRing,{agent:'claude',value:null}));assert.match(rendered,/未知/);assert.doesNotMatch(rendered,/100%/);
+ const visible=ui.visibleAccounts({codex:{status:'ok',meters:[],models:[]},claude:{reason:'CLI not found on this host.',meters:[],models:[]}});assert.equal(visible.length,1);
+ rendered=ui.render(ui.h(ui.AccountTile,{agent:'codex',account:{status:'ok',meters:[{label:'Weekly',remaining_percent:10,resets_at:null}],models:[]},now:0}));assert.match(rendered,/float-agent-name/);assert.match(rendered,/10/);assert.doesNotMatch(rendered,/overflow:auto/);
  const original=[{label:'5 hours',remaining_percent:50},{label:'Weekly',remaining_percent:10}];
  assert.equal(ui.orderedMeters(original)[0].label,'Weekly');assert.equal(original[0].label,'5 hours');
  ui.setLanguage('en');assert.equal(ui.resetCountdown('2030-01-02T02:30:00Z',Date.parse('2030-01-01T00:00:00Z')),'Resets in 1d 2h 30m');

@@ -78,6 +78,25 @@ async fn backend_rpc(app: tauri::AppHandle, backend: State<'_, Backend>, request
     }).await.map_err(|e| e.to_string())?
 }
 #[tauri::command]
+fn fit_usage(window: tauri::WebviewWindow, height: f64) -> Result<f64, String> {
+    if window.label() != "usage" || !height.is_finite() || !(40.0..=20000.0).contains(&height) {
+        return Err("Invalid usage window size".into());
+    }
+    let monitor = window.current_monitor().map_err(|e|e.to_string())?;
+    let available = monitor.as_ref().map(|m| m.work_area().size.height as f64 / m.scale_factor() - 16.0).unwrap_or(800.0);
+    let scale = (available / height).min(1.0);
+    window.set_size(tauri::LogicalSize::new(172.0 * scale, height * scale)).map_err(|e|e.to_string())?;
+    if let Some(m) = monitor {
+        let area = m.work_area();
+        let size = window.outer_size().map_err(|e|e.to_string())?;
+        let pos = window.outer_position().map_err(|e|e.to_string())?;
+        let x = pos.x.clamp(area.position.x, (area.position.x + area.size.width as i32 - size.width as i32).max(area.position.x));
+        let y = pos.y.clamp(area.position.y, (area.position.y + area.size.height as i32 - size.height as i32).max(area.position.y));
+        window.set_position(tauri::PhysicalPosition::new(x,y)).map_err(|e|e.to_string())?;
+    }
+    Ok(scale)
+}
+#[tauri::command]
 fn usage_window(app: tauri::AppHandle, window: tauri::WebviewWindow, action: String) -> Result<(), String> {
     match action.as_str() {
         "drag" if window.label() == "usage" => window.start_dragging().map_err(|e| e.to_string()),
@@ -93,7 +112,7 @@ fn usage_window(app: tauri::AppHandle, window: tauri::WebviewWindow, action: Str
     }
 }
 fn main() {
-    tauri::Builder::default().plugin(tauri_plugin_updater::Builder::new().build()).manage(updates::Updates::default()).manage(Backend(Arc::new(Mutex::new(None)))).invoke_handler(tauri::generate_handler![rpc, usage_window, updates::update_status, updates::app_update])
+    tauri::Builder::default().plugin(tauri_plugin_updater::Builder::new().build()).manage(updates::Updates::default()).manage(Backend(Arc::new(Mutex::new(None)))).invoke_handler(tauri::generate_handler![rpc, usage_window, fit_usage, updates::update_status, updates::app_update])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
