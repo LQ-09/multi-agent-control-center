@@ -8,17 +8,19 @@ from core import Store, clean
 from agents import run, version, cleanup
 from history import scan
 from providers import Providers
+from agent_monitor import AgentMonitor
 
 def main():
     parser=argparse.ArgumentParser(); parser.add_argument('--root',required=True); parser.add_argument('--profile',choices=['single','split'],default='split'); args=parser.parse_args()
     if args.profile=='split' and platform.system()!='Windows': raise SystemExit('The live authority must run on Windows. Use demo mode on Mac.')
-    store=Store(args.root,host='worker' if args.profile=='single' else None); providers=Providers(args.root); active=set()
+    store=Store(args.root,host='worker' if args.profile=='single' else None); providers=Providers(args.root); active=set(); monitor=AgentMonitor()
     def call(op,args=None): return store.dispatch({'op':op,'args':args or {}})
     for line in sys.stdin:
         try:
             if len(line)>1_000_000: raise ValueError('Request too large')
             req=json.loads(line); op=req.get('op')
-            if op=='hello': result={'host':platform.node(),'os':platform.system(),'agents':{a:version(a) for a in ('codex','claude')},'root':str(store.root),'protocol':2,'profile':args.profile}
+            if op=='hello': result={'host':platform.node(),'os':platform.system(),'agents':{a:version(a) for a in ('codex','claude')},'root':str(store.root),'protocol':2,'profile':args.profile,'agent_controls':1}
+            elif op=='agent_status':result=monitor.snapshot(bool(req.get('args',{}).get('refresh')))
             elif op=='tick':
                 s=call('claim',{'host':'worker' if args.profile=='single' else 'windows'}) if len(active)<1 else None
                 if s:

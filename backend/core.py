@@ -10,6 +10,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from agent_settings import DEFAULTS, defaults, selection
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -59,6 +60,10 @@ class Store:
         CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'Events are append-only'); END;
         CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'Events are append-only'); END;
         ''')
+        self.db.execute('CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+        columns={r[1] for r in self.db.execute('PRAGMA table_info(steps)')}
+        for column in ('model','effort'):
+            if column not in columns:self.db.execute(f"ALTER TABLE steps ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
         self.db.commit()
     @contextmanager
     def transaction(self):
@@ -89,8 +94,12 @@ class Store:
         if not title or not prompt or not acceptance: raise ValueError('Title, task brief and acceptance criteria are required.')
         if len(prompt)>12000 or len(title)>160 or len(acceptance)>2000: raise ValueError('Task input is too large.')
         if not workspace or any(c in workspace for c in '\r\n\x00'): raise ValueError('An explicit execution workspace is required.')
-        agents=data.get('agents',['codex','codex','claude'])
+        saved=self.agent_defaults(); agents=data.get('agents',saved['roles'])
         if len(agents)!=3 or any(not isinstance(a,str) or (a not in ('codex','claude') and not re.fullmatch(r'api:[a-z][a-z0-9_-]{0,39}',a)) for a in agents): raise ValueError('Choose supported agents for all three roles.')
+        options=data.get('agent_options')
+        if options is None:options=[saved.get(a,{'model':'','effort':''}) for a in agents]
+        if not isinstance(options,list) or len(options)!=3:raise ValueError('Provide model settings for all three roles')
+        options=[selection(a,o) for a,o in zip(agents,options)]
         key=data.get('key'); fingerprint=digest(json.dumps(data,sort_keys=True))
         if not key: raise ValueError('Idempotency key required')
         with self.transaction():
@@ -102,10 +111,19 @@ class Store:
             self.db.execute('INSERT INTO tasks(id,title,prompt,status,created,workspace,acceptance,demo) VALUES(?,?,?,?,?,?,?,?)',
                 (ident,clean(title),clean(prompt),'Draft',now(),workspace,clean(acceptance),int(self.demo)))
             for pos,(role,host) in enumerate([('Plan',self.host or 'mac'),('Execute',self.host or 'windows'),('Review',self.host or 'mac')]):
-                self.db.execute('INSERT INTO steps(id,task_id,position,role,agent,host,status) VALUES(?,?,?,?,?,?,?)',(uid(),ident,pos,role,agents[pos],host,'Pending'))
+                self.db.execute('INSERT INTO steps(id,task_id,position,role,agent,host,status,model,effort) VALUES(?,?,?,?,?,?,?,?,?)',(uid(),ident,pos,role,agents[pos],host,'Pending',options[pos]['model'],options[pos]['effort']))
             self.event(ident,'task.created','Task saved. Execution requires explicit Run. Read-only agent tools in this prototype.')
             result={'id':ident}; self.db.execute('INSERT INTO commands VALUES(?,?,?)',(key,fingerprint,json.dumps(result)))
             return result
+    def agent_defaults(self):
+        with self.lock:
+            row=self.db.execute("SELECT value FROM preferences WHERE key='agent_defaults'").fetchone()
+            return defaults(json.loads(row['value']) if row else DEFAULTS)
+    def save_agent_defaults(self, data):
+        value=defaults(data)
+        with self.transaction():
+            self.db.execute("INSERT OR REPLACE INTO preferences VALUES('agent_defaults',?)",(json.dumps(value),))
+        return value
     def control(self, ident, action, revision):
         with self.transaction():
             t=self.get_task(ident)
@@ -191,7 +209,7 @@ class Store:
     def snapshot(self):
         self.expire()
         with self.lock:
-            return {'tasks':[dict(r) for r in self.db.execute('SELECT * FROM tasks ORDER BY created DESC LIMIT 200')],
+            return {'agent_defaults':self.agent_defaults(),'tasks':[dict(r) for r in self.db.execute('SELECT * FROM tasks ORDER BY created DESC LIMIT 200')],
                 'steps':[dict(r) for r in self.db.execute('SELECT * FROM steps ORDER BY position LIMIT 1000')],
                 'events':[dict(r) for r in self.db.execute('SELECT * FROM events ORDER BY sequence_number DESC LIMIT 160')][::-1],
                 'artifacts':[dict(r) for r in self.db.execute('SELECT id,task_id,step_id,name,sha256,size,created FROM artifacts ORDER BY created DESC LIMIT 200')],
@@ -216,6 +234,7 @@ class Store:
     def dispatch(self, r):
         op=r.get('op'); a=r.get('args',{})
         if op=='snapshot': return self.snapshot()
+        if op=='save_agent_defaults': return self.save_agent_defaults(a)
         if op=='create': return self.create(a)
         if op=='control': return self.control(a['id'],a['action'],a['revision'])
         if op=='claim': return self.claim(a['host'])

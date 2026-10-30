@@ -98,3 +98,9 @@ Tests exercise local contracts, a POSIX service subprocess, fake CLI output and 
 Rust uses Tauri's updater with a fixed HTTPS GitHub manifest, embedded public key and mandatory signed-version matching. A check is read-only. Installing takes the broker scheduler lock, rejects active or unknown execution state, and freezes task mutations before downloading. Signature verification precedes application replacement. Failure releases the broker lockout; success closes the owned backend and restarts the app. Existing authority databases and profiles live outside the application bundle and are not migrated by this release. Remote services have a separate lifecycle.
 
 Release tooling archives the verified staged app, signs that archive and publishes version-specific assets plus latest.json. The private signing key is never included in Git or the bundle. Production notarization and installed upgrade/rollback validation remain outstanding.
+
+## Account monitoring and model choices (0.6)
+
+A bounded in-memory monitor per host queries CLI-owned account interfaces in background threads. It neither reads credential files nor posts user prompts to model APIs. Observations have a five-minute freshness limit, separate host/account provenance, and explicit unavailable states. Failed refreshes replace previous data instead of presenting stale percentages as current. No inferred recovery or automatic rerouting follows a reset time or percentage.
+
+Additive SQLite migrations add model/effort to steps (blank for old tasks) and a preferences table for future-task defaults. Creation validates and snapshots selections; changing defaults never edits existing steps. The old SSH protocol remains compatible, with an agent_controls capability to prevent silent dropping of explicit settings on older workers. Model support is CLI/account-dependent; configuration is not proof of a successful inference call.

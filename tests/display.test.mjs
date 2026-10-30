@@ -10,7 +10,7 @@ globalThis.localStorage={getItem:key=>storage.get(key)??null,setItem:(key,value)
 globalThis.document={documentElement:{lang:'',style:{setProperty:(key,value)=>styles.set(key,value)}}};
 try{
  const outfile=join(temporary,'display.mjs');
- await build({stdin:{contents:"export * from './src/i18n';export * from './src/display';export * from './src/settings';export {renderToStaticMarkup as render} from 'react-dom/server';export {createElement as h} from 'react';",resolveDir:process.cwd(),loader:'tsx'},outfile,bundle:true,platform:'node',format:'esm',banner:{js:"import {createRequire} from 'node:module';const require=createRequire(import.meta.url);"}});
+ await build({stdin:{contents:"export * from './src/i18n';export * from './src/display';export * from './src/settings';export * from './src/agent-controls';export {renderToStaticMarkup as render} from 'react-dom/server';export {createElement as h} from 'react';",resolveDir:process.cwd(),loader:'tsx'},outfile,bundle:true,platform:'node',format:'esm',banner:{js:"import {createRequire} from 'node:module';const require=createRequire(import.meta.url);"}});
  const ui=await import(pathToFileURL(outfile));
  assert.equal(ui.tr('Settings'),'设置');assert.equal(document.documentElement.lang,'zh-CN');
  for(const size of ui.fontSizes){ui.setFontSize(size);assert.equal(styles.get('--font-scale'),String(size/100))}
@@ -24,6 +24,10 @@ try{
  let rendered=ui.render(ui.h(ui.EnvironmentSettings,props));assert.match(rendered,/Execution environment/);
  ui.setLanguage('zh');rendered=ui.render(ui.h(ui.EnvironmentSettings,props));assert.match(rendered,/执行环境/);assert.match(rendered,/本机规划工作目录/);assert.match(rendered,/\/Users\/test\/Running/);
  rendered=ui.render(ui.h(ui.DisplayControls));assert.match(rendered,/字体大小/);assert.match(rendered,/简体中文/);assert.match(rendered,/English/);assert.match(rendered,/150%/);
+ rendered=ui.render(ui.h(ui.AgentOptions,{agent:'codex',value:{model:'my-model',effort:'high'},onChange:()=>{},ident:'test',models:[]}));
+ assert.match(rendered,/思考强度/);assert.match(rendered,/my-model/);assert.match(rendered,/value="high" selected/);
+ rendered=ui.render(ui.h(ui.UsageSidebar,{status:{hosts:{local:{agents:{codex:{status:'ok',meters:[{label:'300 min',scope:'shared',remaining_percent:42,resets_at:null}],models:[]},claude:{status:'unavailable',reason:'CLI not found on this host.',meters:[],models:[]}}}}},error:'',refresh:()=>{},providers:[],settings:()=>{}}));
+ assert.match(rendered,/42/);assert.match(rendered,/此主机未找到/);assert.doesNotMatch(rendered,/100%/);
  const catalog=JSON.parse(await readFile('src/zh.json','utf8'));
  for(const key of ['Draft','Queued','Planning','Running','Paused','Blocked','Failed','Verifying','Completed','Cancelled','Waiting for Dependency','Waiting for Approval','Overview','Tasks','History','Artifacts','Hosts','Providers','Settings'])assert.ok(catalog[key],key);
  assert.equal(ui.tr('Custom task /Users/test/private.txt'),'Custom task /Users/test/private.txt');

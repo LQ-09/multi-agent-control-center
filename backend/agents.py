@@ -10,6 +10,7 @@ import queue
 import time
 from pathlib import Path
 from core import clean, uid
+from agent_settings import selection
 
 CHILDREN = set()
 CHILD_LOCK = threading.Lock()
@@ -30,14 +31,17 @@ def version(agent):
         return {'available':p.returncode==0,'path':binary,'version':clean(p.stdout.strip() or p.stderr,300)}
     except Exception as e: return {'available':False,'error':clean(e,300)}
 
-def argv(agent):
+def argv(agent, model="", effort=""):
+    selection(agent,{"model":model,"effort":effort})
+    extra=(["--model",model] if model else [])
+    if effort:extra+=(["-c",'model_reasoning_effort="'+effort+'"'] if agent=="codex" else ["--effort",effort])
     binary=shutil.which(agent)
     if not binary: raise ValueError(f'{agent} is not installed or not visible in the background process PATH')
     if agent=='codex':
-        return [binary,'-a','never','exec','--json','--sandbox','read-only','--skip-git-repo-check','-']
+        return [binary,*extra,'-a','never','exec','--json','--sandbox','read-only','--skip-git-repo-check','-']
     # No shell, filesystem or MCP tools are enabled for this Claude prototype adapter.
     if agent=='claude':
-        return [binary,'-p','--output-format','stream-json','--verbose','--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--permission-mode','dontAsk']
+        return [binary,*extra,'-p','--output-format','stream-json','--verbose','--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--permission-mode','dontAsk']
     raise ValueError('Unsupported agent')
 
 def prompt_for(s):
@@ -97,7 +101,8 @@ def run(s, call, mac_workspace=None, demo=False, providers=None):
                 return call('finish',{**common,'output':value})
         cwd=Path(mac_workspace if s['host']=='mac' else s['task']['workspace']).expanduser().resolve()
         if not cwd.is_dir(): raise ValueError('Execution workspace does not exist: '+str(cwd))
-        command=argv(s['agent'])
+        command=argv(s['agent'],s.get('model',''),s.get('effort',''))
+        report(json.dumps({'type':'agent.configuration','agent':s['agent'],'model':s.get('model') or 'CLI default','effort':s.get('effort') or 'CLI default'}))
         if os.name=='nt' and command[0].lower().endswith(('.cmd','.bat')):
             # Only the trusted installed CLI shim is passed to cmd; task text is stdin, never argv.
             command=['cmd.exe','/d','/s','/c',subprocess.list2cmdline(command)]

@@ -39,6 +39,22 @@ Language changes affect interface labels, task states and common messages. Your 
 
 For a no-cost walkthrough, select **Demo** from the environment menu. Demo uses simulated agents and a separate local database; it never makes model requests or imports native history. Local mode is real execution, not a demo.
 
+## Account usage and model controls (0.6)
+
+The sidebar shows **Account usage / 账户额度**, separated by execution host and CLI account. This covers the currently signed-in account for each CLI on each host; it does not add account switching or discover other logged-out subscriptions. It queries Codex's `account/rateLimits/read` and Claude Code's built-in `/usage` structured report. It displays the server's remaining percentages (`100 − used`), separate windows/scopes, reset timestamps, subscription type where available, and observation time. Multiple models may share a quota: the app does not invent a separate allowance for every model or convert tokens/context size/session cost into subscription quota.
+
+Queries run in background, refresh on demand (15-second minimum spacing) and expire after five minutes. They do not submit model inference prompts. Native credentials remain CLI-owned; no tokens are copied into platform configuration. Account identifiers are short hashes of the CLI-reported email, held in memory. Queries use a temporary workspace and Claude disables customizations and session persistence. Native CLI maintenance, including auth refresh, remains controlled by the CLI itself.
+
+**Unavailable means unknown, never 0% or 100%.** Missing commands, unsupported CLI versions, authentication/network errors and absent subscription meters are shown explicitly. Claude structured usage requires CLI 2.1.273+ and qualifying subscription credentials; API-key, usage-billed or insufficient-scope sessions may not expose it. Generic API profiles show a billing-unavailable note because Chat Completions does not provide a standard balance endpoint. Credits and monetary balances are not inferred from percentages. No automatic model/account switching is enabled.
+
+In **Settings → Default models and effort / 设置 → 默认智能体、模型与思考强度**, choose the default CLI for planning/execution/review and the model ID and reasoning effort for Codex and Claude separately. Each new task also exposes per-role overrides. Selections are saved in the task's steps and passed as CLI arguments, rather than changing native CLI settings. Existing steps keep their selections. Blank model/effort fields intentionally inherit the execution CLI's configuration at run time; for reproducible choices, specify an exact model ID and supported effort. Codex model suggestions come from its account catalog when available. Claude aliases are conveniences, not guarantees of model availability. Unsupported combinations fail visibly.
+
+Default roles are Codex/Codex/Codex until you change them. The task detail shows requested model/effort, and the timeline records the requested configuration plus the CLI's own events. API agents continue to use the model in their provider profile; CLI reasoning flags do not apply to those APIs.
+
+**Remote hosts:** redeploy the v0.6 backend for remote usage and model controls. Older workers remain usable for default CLI tasks, but explicit model/effort overrides are rejected instead of silently ignored. A desktop update does not redeploy workers. In Windows-first split mode the sidebar separates local and remote accounts; role placement is unchanged.
+
+Verified: parser fixtures, scoped-window handling, invalid/missing percentages, defaults persistence, task option immutability, database migration, CLI argument contracts and rendered controls. Live probes in the development environment did not establish working subscription percentages: Codex could not initialize its native state under the execution restrictions, and Claude returned a structured usage response with no plan meters. Actual quotas depend on the installed app's execution host and authentication.
+
 ## Three themes
 
 The top-right theme selector offers **Light (black on white)**, **Dark (white on black)** and **Dark blue**. The preference is saved locally. Theme changes cover the dashboard, task details, logs, providers, settings and dialogs. This is a native app using an embedded WebView, not a hosted web dashboard.
@@ -235,7 +251,7 @@ Native history imports are opt-in and bounded (100 files / 4 MB per scan); parsi
 
 Display tests also check bilingual rendered settings, preference persistence, font limits and unchanged paths (`npm run test:display`).
 
-39 automated tests cover task/lease behavior, local routing, environment isolation, SSH command quoting, provider contracts, credential non-persistence, redirects, incomplete responses and cancellation. Source and frozen-backend Demo smoke tests are run during release preparation. API tests use mocked responses; **live DeepSeek/OpenAI/Ollama calls and real cross-host CLI execution are not certified**. Native window interaction and installation still require manual testing. Passing a unit test or compiling the app does not establish those integrations.
+49 automated tests cover task/lease behavior, local routing, environment isolation, SSH command quoting, provider contracts, credential non-persistence, redirects, incomplete responses and cancellation. Source and frozen-backend Demo smoke tests are run during release preparation. API tests use mocked responses; **live DeepSeek/OpenAI/Ollama calls and real cross-host CLI execution are not certified**. Native window interaction and installation still require manual testing. Passing a unit test or compiling the app does not establish those integrations.
 
 ## License
 

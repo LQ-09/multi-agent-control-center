@@ -15,6 +15,7 @@ from core import Store, clean
 from agents import run, version, cleanup
 from history import scan
 from providers import Providers, PRESETS
+from agent_monitor import AgentMonitor
 
 DEFAULT = {'ssh_alias':'worker','windows_python':'python3','windows_service':'/home/user/agent-control-center/backend/service.py',
     'windows_root':'/home/user/agent-control-center/state','mac_workspace':str(Path.home()),
@@ -70,7 +71,7 @@ class Bridge:
         self.environments=json.loads(env_path.read_text()) if env_path.exists() else []
         self.demo=Store(self.cache/'demo',demo=True)
         self.local=Store(self.cache/'local',host='local')
-        self.providers=Providers(self.cache/'local')
+        self.providers=Providers(self.cache/'local'); self.monitor=AgentMonitor()
         self.remote=None; self.connected=self.config['mode']=='local'; self.info=None
         self.update_pending=False; self.error=None; self.active=False; self.stop=False; self.last_live=None
         self.needs_connect=self.config['mode']=='live'
@@ -156,6 +157,20 @@ class Bridge:
                 'hosts':{'mac':{'host':platform.node(),'os':platform.system(),'agents':self.local_agents},'windows':self.info},
                 'mac_storage':{'managed_bytes':sum(p.stat().st_size for p in self.cache.rglob('*') if p.is_file()),'budget':1_000_000_000,'disk_free':shutil.disk_usage(self.cache).free},
                 'capabilities':{'live_profile':'read-only','general_dag':False,'automatic_verification':False,'mcp':False,'artifact_sync':'small-text-only'}}
+        if op=='agent_status':
+            if self.config['mode']=='demo':return {'hosts':{},'demo':True}
+            hosts={}
+            if self.config['mode']=='local' or self.config['profile']=='split':
+                hosts['local']=self.monitor.snapshot(bool(args.get('refresh')))
+            if self.config['mode']=='live':
+                if not self.connected:hosts['remote']={'error':'Remote environment is not connected.','agents':{}}
+                elif not (self.info or {}).get('agent_controls'):hosts['remote']={'error':'Update the remote worker to v0.6 for account and model controls.','agents':{}}
+                else:hosts['remote']=self.call('agent_status',args)
+            return {'hosts':hosts}
+        if op=='save_agent_defaults':
+            if self.config['mode']=='live' and not (self.info or {}).get('agent_controls'):
+                raise ValueError('Update the remote worker to v0.6 for account and model controls.')
+            return self.call(op,args)
         if op=='save_environment':
             ident=args.get('id',''); name=args.get('name','')
             if not re.fullmatch(r'[a-z][a-z0-9_-]{0,39}',ident) or not isinstance(name,str) or not name.strip() or len(name)>80: raise ValueError('Enter a profile ID and name')
@@ -201,6 +216,9 @@ class Bridge:
             if self.config['mode']=='local': return {'local':scan(self.call,'local')}
             if self.config['profile']=='single': return {'remote':self.call('scan')}
             return {'mac':scan(self.call,'mac'),'windows':self.call('scan')}
+        if op=='create' and self.config['mode']=='live' and args.get('agent_options') and not (self.info or {}).get('agent_controls'):
+            if any(o.get('model') or o.get('effort') for o in args['agent_options']):
+                raise ValueError('Update the remote worker to v0.6 for account and model controls.')
         if op=='create' and self.config['mode']!='demo':
             for i,agent in enumerate(args.get('agents',[])):
                 if agent.startswith('api:'):
