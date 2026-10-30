@@ -55,6 +55,38 @@ The top-right theme selector offers **Light (black on white)**, **Dark (white on
 
 **CLI agents and model APIs are different.** Adding a model endpoint does not give it shell, filesystem, browsing or MCP tools. API agents receive only the task brief, acceptance criteria and bounded text handoffs. Native transcripts are not automatically attached.
 
+### Connect your Codex CLI or Claude Code
+
+These are built-in adapters, not profiles you add under Providers. The application searches for the `codex` and `claude` commands on the execution host. It does not bundle either CLI, install them, or sign in on your behalf. Installing only the Codex or Claude desktop application does not establish that its CLI is available.
+
+1. Install whichever CLI you want to use on the execution computer, following that product's installation instructions. You do not need both.
+2. Open that CLI in the terminal as the same operating-system user that runs this application (or the SSH worker), and complete its own sign-in. Confirm the CLI can handle a simple request on its own.
+3. Check command discovery in that terminal:
+
+   ```sh
+   codex --version
+   claude --version
+   ```
+
+   Run only the command for the CLI you installed. Version detection confirms the executable is available; it does **not** prove login, quota or model access.
+4. Fully quit and reopen Agent Control Center after installing a CLI. Open **Hosts / 主机** and inspect the detected CLI version or error.
+5. Create a task and select **Codex** or **Claude Code** for each role. The application starts CLI subprocesses in the background when you click **Run**; you do not need to keep an interactive terminal window open. Credentials stay managed by the CLI; do not paste CLI authentication files into Providers.
+
+For SSH execution, perform installation and login on the **remote computer under the SSH account**. Your Mac's login does not log in the Windows worker. In the Windows-first split layout, local planning/review need their chosen CLI on Mac; execution needs its chosen CLI on Windows. Default single-computer mode needs no second environment.
+
+If Hosts says the command was not found, verify its installation location and restart the app. Standard macOS Homebrew, user-local and nvm paths are searched. A nonstandard executable path currently has no manual picker in the UI. Shell-only environment overrides and custom authentication directories are not automatically imported from an interactive terminal.
+
+**Current boundary:** these adapters start bounded task runs. They do not attach to an already-open terminal conversation or resume native historical sessions. Codex uses read-only tools; Claude Code's tools are disabled in this preview.
+
+### 接入自己的 Codex / Claude Code（中文）
+
+- 不用在「模型服务商」里添加，它们是内置 CLI 适配器；在执行任务的电脑上安装并登录 CLI 后，应用会尝试自动识别。
+- 只安装桌面聊天软件不等于已安装 CLI。先在终端确认所需的 `codex --version` 或 `claude --version` 可用，并打开 CLI 完成登录、确认能正常响应。
+- 安装后完全退出并重开本应用，在「主机」查看版本。检测到版本不代表登录或额度一定正常。
+- 新建任务时给规划、执行、审查角色选择 Codex 或 Claude Code，点击运行后由应用后台启动，不需要一直开着终端。
+- 远程任务需要在远程主机用 SSH 登录账户安装和登录；Mac 的登录不会自动传到 Windows。单机使用无需增加环境。
+- 当前不会接管已有终端对话或恢复原生历史会话；Codex 只读，Claude Code 暂不启用工具。DeepSeek 等 API 服务商才需要在「模型服务商」里配置地址、模型和密钥。
+
 ### Connect DeepSeek
 
 1. Open **Providers** on the environment where the requests should run.
