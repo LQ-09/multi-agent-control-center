@@ -42,3 +42,5 @@ cargo run --manifest-path src-tauri/Cargo.toml --example verify_update -- src-ta
 ```
 
 Use the archive matching the new version. This check verifies the configured public key, signed version, and rejection of modified bytes.
+
+Successful macOS packaging removes loose application bundles from the known build staging directories, leaving the installer and signed update archive. Temporary staging is also cleaned on failure. To remove leftover build apps from older builds, run `python3 scripts/cleanup_build_apps.py`. It checks the application identifier and refuses symlinked paths; it never targets `/Applications`, databases or native agent sessions. Finder/Spotlight may briefly retain cached entries after a copy is removed.
