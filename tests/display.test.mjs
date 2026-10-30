@@ -28,6 +28,10 @@ try{
  assert.match(rendered,/思考强度/);assert.match(rendered,/my-model/);assert.match(rendered,/value="high" selected/);
  rendered=ui.render(ui.h(ui.UsageSidebar,{status:{hosts:{local:{agents:{codex:{status:'ok',meters:[{label:'300 min',scope:'shared',remaining_percent:42,resets_at:null}],models:[]},claude:{status:'unavailable',reason:'CLI not found on this host.',meters:[],models:[]}}}}},error:'',refresh:()=>{},providers:[],settings:()=>{}}));
  assert.match(rendered,/42/);assert.match(rendered,/此主机未找到/);assert.doesNotMatch(rendered,/100%/);
+ const original=[{label:'5 hours',remaining_percent:50},{label:'Weekly',remaining_percent:10}];
+ assert.equal(ui.orderedMeters(original)[0].label,'Weekly');assert.equal(original[0].label,'5 hours');
+ ui.setLanguage('en');assert.equal(ui.resetCountdown('2030-01-02T02:30:00Z',Date.parse('2030-01-01T00:00:00Z')),'Resets in 1d 2h 30m');
+ assert.match(ui.resetCountdown('2000-01-01T00:00:00Z'),/awaiting/);assert.match(ui.resetCountdown(null),/unavailable/);ui.setLanguage('zh');
  const catalog=JSON.parse(await readFile('src/zh.json','utf8'));
  for(const key of ['Draft','Queued','Planning','Running','Paused','Blocked','Failed','Verifying','Completed','Cancelled','Waiting for Dependency','Waiting for Approval','Overview','Tasks','History','Artifacts','Hosts','Providers','Settings'])assert.ok(catalog[key],key);
  assert.equal(ui.tr('Custom task /Users/test/private.txt'),'Custom task /Users/test/private.txt');

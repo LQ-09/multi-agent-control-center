@@ -216,6 +216,8 @@ class Bridge:
             if self.config['mode']=='local': return {'local':scan(self.call,'local')}
             if self.config['profile']=='single': return {'remote':self.call('scan')}
             return {'mac':scan(self.call,'mac'),'windows':self.call('scan')}
+        if op=='create' and self.config['mode']=='live' and not args.get('acceptance','').strip() and not (self.info or {}).get('planned_acceptance'):
+            raise ValueError('Update the remote worker to v0.7 to generate acceptance criteria during planning.')
         if op=='create' and self.config['mode']=='live' and args.get('agent_options') and not (self.info or {}).get('agent_controls'):
             if any(o.get('model') or o.get('effort') for o in args['agent_options']):
                 raise ValueError('Update the remote worker to v0.6 for account and model controls.')

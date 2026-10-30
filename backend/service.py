@@ -19,7 +19,7 @@ def main():
         try:
             if len(line)>1_000_000: raise ValueError('Request too large')
             req=json.loads(line); op=req.get('op')
-            if op=='hello': result={'host':platform.node(),'os':platform.system(),'agents':{a:version(a) for a in ('codex','claude')},'root':str(store.root),'protocol':2,'profile':args.profile,'agent_controls':1}
+            if op=='hello': result={'host':platform.node(),'os':platform.system(),'agents':{a:version(a) for a in ('codex','claude')},'root':str(store.root),'protocol':2,'profile':args.profile,'agent_controls':1,'planned_acceptance':1}
             elif op=='agent_status':result=monitor.snapshot(bool(req.get('args',{}).get('refresh')))
             elif op=='tick':
                 s=call('claim',{'host':'worker' if args.profile=='single' else 'windows'}) if len(active)<1 else None

@@ -49,7 +49,7 @@ def prompt_for(s):
     return (f"You are the {s['role']} agent in a read-only orchestration prototype. Do not modify files, run destructive actions, trade, submit forms, or handle credentials. "
         'Produce a concise useful result, state assumptions and unverified claims. This prototype cannot implement file changes. '
         'If asked to implement, provide a patch proposal and verification plan as text only. '
-        'For Plan: outline a short approach. For Execute: answer or analyze using permitted read-only tools. '
+        'For Plan: outline a short approach. If Acceptance is empty, derive concrete, checkable acceptance criteria from the goal and append them inside <acceptance_criteria>...</acceptance_criteria> (maximum 2000 characters). Separate evidence that can be checked from work this read-only prototype cannot perform. For Execute: answer or analyze using permitted read-only tools. '
         'For Review: inspect supplied results and explain whether the acceptance criteria are satisfied; never claim tests ran without evidence.\n'
         f"Task: {s['task']['prompt']}\nAcceptance: {s['task']['acceptance']}\nPrior handoffs:\n{context}")
 
@@ -76,7 +76,7 @@ def run(s, call, mac_workspace=None, demo=False, providers=None):
                 state=call('pulse',common)
                 if state['stop']: return call('finish',{**common,'output':'','stopped':state['stop'].split()[0]})
                 report('[SIMULATED] '+message); time.sleep(.45)
-            text={'Plan':'1. Inspect the requested scope.\n2. Analyze on the selected environment.\n3. Review results.\n4. Ask the user to accept the evidence.',
+            text={'Plan':'1. Inspect the requested scope.\n2. Analyze on the selected environment.\n3. Review results.\n4. Ask the user to accept the evidence.\n<acceptance_criteria>Simulated workflow produces three handoffs and explicitly identifies all unverified claims; the user reviews the results.</acceptance_criteria>',
                 'Execute':'Simulated execution result. No CLI or external command ran.\nThe demo produced this small handoff to demonstrate cross-host ordering.',
                 'Review':'The simulated handoff is internally consistent. This demonstrates orchestration only; no real acceptance tests were executed.'}[s['role']]
             return call('finish',{**common,'output':text})

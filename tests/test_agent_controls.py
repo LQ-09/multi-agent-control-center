@@ -15,6 +15,21 @@ from agents import CHILDREN
 from bridge import Bridge
 
 class AgentControlsTests(unittest.TestCase):
+    def test_planner_generates_criteria_before_execution(self):
+        with tempfile.TemporaryDirectory() as root:
+            store=Store(root,host='local')
+            ident=store.create({'key':'automatic','prompt':'Review my project','workspace':root})['id']
+            self.assertEqual(store.get_task(ident)['title'],'Review my project')
+            store.control(ident,'run',1);step=store.claim('local')
+            with self.assertRaises(ValueError):store.finish(step['id'],step['attempt'],'Plan without criteria')
+            self.assertEqual(store.get_task(ident)['acceptance'],'')
+            self.assertIsNone(store.claim('local'))
+            store.finish(step['id'],step['attempt'],'Plan\n<acceptance_criteria>List findings with file references.</acceptance_criteria>')
+            execute=store.claim('local')
+            self.assertEqual(execute['task']['acceptance'],'List findings with file references.')
+            self.assertEqual(execute['role'],'Execute')
+            self.assertNotEqual(store.get_task(ident)['status'],'Completed');store.close()
+
     def test_query_subprocess_is_bounded_and_owned(self):
         with tempfile.TemporaryDirectory() as root:
             script=Path(root)/'fake.py'
@@ -70,7 +85,7 @@ class AgentControlsTests(unittest.TestCase):
     def test_old_worker_rejects_explicit_model_instead_of_ignoring_it(self):
         with tempfile.TemporaryDirectory() as root,patch('bridge.threading.Thread.start'),patch('bridge.version',return_value={}):
             bridge=Bridge(root);bridge.config['mode']='live';bridge.info={'protocol':2}
-            with self.assertRaisesRegex(ValueError,'v0.6'):bridge.dispatch({'op':'create','args':{'agent_options':[{'model':'test','effort':'high'}]*3}})
+            with self.assertRaisesRegex(ValueError,'v0.6'):bridge.dispatch({'op':'create','args':{'acceptance':'Evidence','agent_options':[{'model':'test','effort':'high'}]*3}})
             bridge.local.close();bridge.demo.close()
     def test_existing_database_adds_columns_without_losing_history(self):
         with tempfile.TemporaryDirectory() as root:

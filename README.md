@@ -256,3 +256,18 @@ Display tests also check bilingual rendered settings, preference persistence, fo
 ## License
 
 [MIT](LICENSE). Bundled third-party runtime components retain their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). This is an independent community project, not affiliated with the model providers or Microsoft.
+
+
+### Task input, dictation and quota windows (0.7)
+
+Describe the task; the title is optional and derives from the first line. Leave acceptance criteria blank to let the planning agent generate checkable criteria. These are stored before execution and passed to the executor/reviewer. A missing or invalid criteria block fails planning; final completion still requires your explicit acceptance. Existing manually supplied criteria are preserved. Remote workers need the matching 0.7 backend for automatic criteria.
+
+The last successfully used execution directory is remembered separately for local/demo and each SSH alias + storage root. Local first use inherits the directory in Settings. A remote directory must be set once on its host; no Mac path is substituted. Switching environments never copies workspaces.
+
+**Voice input:** click **Use system dictation** to focus the task description and show instructions, then use your OS dictation shortcut. On Mac, enable Dictation under System Settings → Keyboard and use the configured microphone/Fn shortcut. On Windows, use Win+H. The button itself does not start recording. ACC does not record or upload audio or call an agent to transcribe it. System language, hardware and privacy settings determine offline availability. Review recognized text before submitting. [Apple Dictation instructions](https://support.apple.com/guide/mac-help/mh40584/mac). Actual microphone input in the packaged app has not been verified in the build environment.
+
+Quota cards show the lowest remaining percentage first (for example, 10% weekly ahead of 50% five-hour), with its window, scope, absolute reset time and live countdown. Expand **Other quota windows** for the rest. Reaching zero time does not fabricate a reset: wait for fresh CLI data. Unknown quotas remain unknown, and stale measurements remain marked.
+
+**Hosts:** one computer can use both Codex and Claude. Open Hosts → Add or manage hosts to save additional SSH profiles (up to 16), then select the desired environment. Saved profiles are not represented as connected until selected and tested. This preview uses one authority at a time; it does not schedule one task across an arbitrary three-or-more-host fleet.
+
+**中文：**任务标题可以留空，验收标准由规划 Agent 生成并传给执行与审查 Agent，最后仍由你确认验收。工作目录创建成功后按环境记忆。语音输入使用系统听写快捷键；页面按钮负责聚焦和引导，不会自行录音。额度优先显示剩余最低的窗口和重置倒计时，其余额度可展开。主机页可以添加多个 SSH 配置；单机也可同时配置多个 Agent，目前每次选择一个管理环境。

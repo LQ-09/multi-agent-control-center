@@ -91,7 +91,8 @@ class Store:
     def create(self, data):
         title=str(data.get('title','')).strip(); prompt=str(data.get('prompt','')).strip()
         workspace=str(data.get('workspace','')).strip(); acceptance=str(data.get('acceptance','')).strip()
-        if not title or not prompt or not acceptance: raise ValueError('Title, task brief and acceptance criteria are required.')
+        if not prompt: raise ValueError('Task brief is required.')
+        title=title or prompt.splitlines()[0][:80]
         if len(prompt)>12000 or len(title)>160 or len(acceptance)>2000: raise ValueError('Task input is too large.')
         if not workspace or any(c in workspace for c in '\r\n\x00'): raise ValueError('An explicit execution workspace is required.')
         saved=self.agent_defaults(); agents=data.get('agents',saved['roles'])
@@ -193,6 +194,13 @@ class Store:
             else:
                 step_status='Succeeded'; status='Verifying' if s['position']==2 else 'Queued'
                 content=clean(output,24000)
+                if s['position']==0 and not self.get_task(s['task_id'])['acceptance']:
+                    match=re.search(r'<acceptance_criteria>(.*?)</acceptance_criteria>', content, re.S)
+                    criteria=match.group(1).strip() if match else ''
+                    if not criteria or len(criteria)>2000:
+                        raise ValueError('Planner must provide acceptance_criteria (1–2000 characters); execution has not been authorized by a valid plan.')
+                    self.db.execute('UPDATE tasks SET acceptance=? WHERE id=?',(criteria,s['task_id']))
+                    self.event(s['task_id'],'acceptance.planned',criteria,s)
                 if not content.strip(): raise ValueError('Empty output cannot satisfy the step contract')
                 self.db.execute('INSERT INTO artifacts VALUES(?,?,?,?,?,?,?,?)',(uid(),s['task_id'],step_id,s['role'].lower()+'-handoff.md',digest(content),len(content.encode()),now(),content))
             self.db.execute('UPDATE steps SET status=?,output=?,error=?,lease=NULL WHERE id=?',(step_status,clean(output,24000),clean(error or '',2000),step_id))
