@@ -6,9 +6,9 @@ export type AgentDefaults={roles:string[];codex:Selection;claude:Selection};
 export const initialDefaults:AgentDefaults={roles:['codex','codex','codex'],codex:{model:'',effort:''},claude:{model:'',effort:''}};
 type Model={id:string;name:string;efforts:string[];default_effort?:string;default?:boolean};
 type Meter={label:string;scope:string;remaining_percent:number;resets_at:string|null};
-type Account={status:string;reason?:string;plan?:string;account?:string;checked_at?:string;meters:Meter[];models:Model[];cli_model?:string;cli_effort?:string;ordinary_usage_allowed?:boolean};
+export type Account={status:string;reason?:string;plan?:string;account?:string;checked_at?:string;meters:Meter[];models:Model[];cli_model?:string;cli_effort?:string;ordinary_usage_allowed?:boolean};
 type Host={refreshing?:boolean;error?:string;agents:Record<string,Account>};
-export type AgentStatus={hosts:Record<string,Host>};
+export type AgentStatus={environment?:string;hosts:Record<string,Host>};
 export function useAgentStatus(environment:string){
  const [status,setStatus]=useState<AgentStatus>({hosts:{}}),[error,setError]=useState('');
  useEffect(()=>{let active=true;setStatus({hosts:{}});setError('');const poll=()=>void rpc<AgentStatus>('agent_status').then(v=>{if(active){setStatus(v);setError('')}}).catch(e=>{if(active){setStatus({hosts:{}});setError(String(e))}});poll();const timer=setInterval(poll,15000);return()=>{active=false;clearInterval(timer)}},[environment]);

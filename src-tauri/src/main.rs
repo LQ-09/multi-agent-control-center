@@ -34,7 +34,13 @@ fn runtime_path() -> std::ffi::OsString {
     std::env::join_paths(paths).unwrap_or_default()
 }
 #[tauri::command]
-async fn rpc(app: tauri::AppHandle, backend: State<'_, Backend>, request: Value) -> Result<Value, String> {
+async fn rpc(window: tauri::WebviewWindow, app: tauri::AppHandle, backend: State<'_, Backend>, request: Value) -> Result<Value, String> {
+    if window.label() != "main" && (window.label() != "usage" || request.get("op").and_then(Value::as_str) != Some("agent_status")) {
+        return Err("The usage window can only read account usage.".into());
+    }
+    backend_rpc(app, backend, request).await
+}
+async fn backend_rpc(app: tauri::AppHandle, backend: State<'_, Backend>, request: Value) -> Result<Value, String> {
     // The bridge has one ordered response stream; all subprocess work happens on Python threads.
     let shared = backend.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -71,10 +77,35 @@ async fn rpc(app: tauri::AppHandle, backend: State<'_, Backend>, request: Value)
     serde_json::from_str(&line).map_err(|e| e.to_string())
     }).await.map_err(|e| e.to_string())?
 }
+#[tauri::command]
+fn usage_window(app: tauri::AppHandle, window: tauri::WebviewWindow, action: String) -> Result<(), String> {
+    match action.as_str() {
+        "drag" if window.label() == "usage" => window.start_dragging().map_err(|e| e.to_string()),
+        "hide" => app.get_webview_window("usage").ok_or("Usage window unavailable")?.hide().map_err(|e| e.to_string()),
+        "show" | "main" => {
+            let target = if action == "show" { "usage" } else { "main" };
+            let target = app.get_webview_window(target).ok_or("Window unavailable")?;
+            target.show().map_err(|e| e.to_string())?;
+            target.unminimize().map_err(|e| e.to_string())?;
+            target.set_focus().map_err(|e| e.to_string())
+        },
+        _ => Err("Unknown usage window action".into()),
+    }
+}
 fn main() {
-    tauri::Builder::default().plugin(tauri_plugin_updater::Builder::new().build()).manage(updates::Updates::default()).manage(Backend(Arc::new(Mutex::new(None)))).invoke_handler(tauri::generate_handler![rpc, updates::update_status, updates::app_update])
+    tauri::Builder::default().plugin(tauri_plugin_updater::Builder::new().build()).manage(updates::Updates::default()).manage(Backend(Arc::new(Mutex::new(None)))).invoke_handler(tauri::generate_handler![rpc, usage_window, updates::update_status, updates::app_update])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide(); // Closing the dashboard leaves the independent widget alive.
+            }
+        })
         .build(tauri::generate_context!()).expect("Unable to build Agent Control Center")
         .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if matches!(event, tauri::RunEvent::Reopen { .. }) {
+                if let Some(main) = app.get_webview_window("main") { let _ = main.show(); let _ = main.set_focus(); }
+            }
             if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
                 if let Ok(mut bridge) = app.state::<Backend>().0.lock() { *bridge = None; }
             }

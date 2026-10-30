@@ -166,7 +166,7 @@ class Bridge:
                 if not self.connected:hosts['remote']={'error':'Remote environment is not connected.','agents':{}}
                 elif not (self.info or {}).get('agent_controls'):hosts['remote']={'error':'Update the remote worker to v0.6 for account and model controls.','agents':{}}
                 else:hosts['remote']=self.call('agent_status',args)
-            return {'hosts':hosts}
+            return {'hosts':hosts,'environment':self.config['ssh_alias'] if self.config['mode']=='live' else ''}
         if op=='save_agent_defaults':
             if self.config['mode']=='live' and not (self.info or {}).get('agent_controls'):
                 raise ValueError('Update the remote worker to v0.6 for account and model controls.')

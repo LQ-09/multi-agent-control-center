@@ -271,3 +271,11 @@ Quota cards show the lowest remaining percentage first (for example, 10% weekly 
 **Hosts:** one computer can use both Codex and Claude. Open Hosts → Add or manage hosts to save additional SSH profiles (up to 16), then select the desired environment. Saved profiles are not represented as connected until selected and tested. This preview uses one authority at a time; it does not schedule one task across an arbitrary three-or-more-host fleet.
 
 **中文：**任务标题可以留空，验收标准由规划 Agent 生成并传给执行与审查 Agent，最后仍由你确认验收。工作目录创建成功后按环境记忆。语音输入使用系统听写快捷键；页面按钮负责聚焦和引导，不会自行录音。额度优先显示剩余最低的窗口和重置倒计时，其余额度可展开。主机页可以添加多个 SSH 配置；单机也可同时配置多个 Agent，目前每次选择一个管理环境。
+
+### Desktop quota widget (0.8)
+
+Usage now lives in a separate, always-on-top native window, not the dashboard sidebar. Drag its header to move it; resize the window as needed. Codex has a custom code-bracket symbol and Claude a custom radial symbol (interface identifiers, not official logos). Ring length tracks the lowest remaining quota window: **above 70% green, 30–70% orange, below 30% red**, with grey for unknown. The percentage, window/scope and reset countdown remain visible; click an agent tile for other windows and the observation time.
+
+The × button hides the widget; **Desktop usage widget** in the main app shows it again. The ↗ button opens the main window. Closing the main window hides it while the widget and backend keep running; use the application Quit command / Cmd+Q to exit the whole app. No additional app is installed. The widget follows the selected authority and does not switch hosts or accounts. It shares the existing bounded usage probes; it cannot submit tasks or install updates through its RPC surface. Language, text size and theme changes follow the main window. Window position is not persisted across full app restarts yet.
+
+中文：额度移至独立置顶悬浮窗，拖动顶部移动，点击图标展开其他额度。绿色 >70%，橙色 30%–70%，红色 <30%，未知为灰色。关闭主窗口后悬浮窗继续显示；悬浮窗 × 仅隐藏，可从主窗口「桌面额度悬浮窗」恢复；↗ 打开主窗口；Cmd+Q 退出整个 App。图标为自定义识别图形，不是官方品牌 Logo。没有安装第二个 App。

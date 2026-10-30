@@ -334,5 +334,11 @@
   "Add or manage hosts": "添加 / 管理主机",
   "Saved profile — connection checked when selected": "已保存的配置，选择后检查连接",
   "PREVIEW 0.7 ": "预览版 0.7 ",
-  "Update the remote worker to v0.7 to generate acceptance criteria during planning.": "请先将远程 Worker 更新到 0.7，才能在规划阶段自动生成验收标准。"
+  "Update the remote worker to v0.7 to generate acceptance criteria during planning.": "请先将远程 Worker 更新到 0.7，才能在规划阶段自动生成验收标准。",
+  "Desktop usage widget": "桌面额度悬浮窗",
+  "Drag to move": "拖动移动",
+  "Open main window": "打开主窗口",
+  "Hide floating usage": "隐藏额度悬浮窗",
+  "Unknown": "未知",
+  "PREVIEW 0.8 ": "预览版 0.8 "
 }

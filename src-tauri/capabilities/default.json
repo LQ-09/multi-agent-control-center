@@ -1,1 +1,11 @@
-{"identifier":"main","description":"Only the bundled main window may use the application bridge.","windows":["main"],"permissions":["core:default"]}
+{
+  "identifier": "main",
+  "description": "Bundled desktop windows; usage RPC is restricted to read-only account status in Rust.",
+  "windows": [
+    "main",
+    "usage"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}
