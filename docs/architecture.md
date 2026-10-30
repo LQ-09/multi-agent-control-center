@@ -104,3 +104,11 @@ Release tooling archives the verified staged app, signs that archive and publish
 A bounded in-memory monitor per host queries CLI-owned account interfaces in background threads. It neither reads credential files nor posts user prompts to model APIs. Observations have a five-minute freshness limit, separate host/account provenance, and explicit unavailable states. Failed refreshes replace previous data instead of presenting stale percentages as current. No inferred recovery or automatic rerouting follows a reset time or percentage.
 
 Additive SQLite migrations add model/effort to steps (blank for old tasks) and a preferences table for future-task defaults. Creation validates and snapshots selections; changing defaults never edits existing steps. The old SSH protocol remains compatible, with an agent_controls capability to prevent silent dropping of explicit settings on older workers. Model support is CLI/account-dependent; configuration is not proof of a successful inference call.
+
+## 0.11 execution and result contracts
+
+New tasks default to Create and run; save-only remains available. Explicit per-task workspace-write is limited to Codex Execute in the selected project directory; planning/review remain read-only, Claude remains tool-free. Codex's workspace-write sandbox stays enabled and CLI subprocess network access is allowed for Git. Root/home/native session directories are rejected. The directory must already exist. Worker capability negotiation prevents writes being silently ignored by older workers. No unrestricted access flags are used.
+
+Every real agent receives the same platform-injected result format: one final `<acc_result>` JSON object with status (`succeeded`, `blocked`, `failed`), a one-line summary of at most160 characters, and full details. Missing/malformed results fail closed. Blocked/failed outcomes stop dependent steps; successful review still requires user acceptance. CLI exit0 alone is insufficient. Timeline uses one bounded summary per step; raw output remains available under Debug logs. Older stored records are not reclassified automatically.
+
+Windows runner pipe-in timeouts remain an independently unverified runtime issue. Workspace permissions do not establish runner health or clone success. Desktop updates do not update remote workers.

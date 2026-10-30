@@ -95,7 +95,7 @@ class AdapterTests(unittest.TestCase):
             task=store.create({'key':'adapter','title':'Inspect','prompt':'Read only','workspace':root,'acceptance':'A result','agents':['codex','codex','claude']})['id']
             store.control(task,'run',1);step=store.claim('mac')
             fake=Path(root)/'fake_cli.py'
-            fake.write_text('import sys,json\nprompt=sys.stdin.read()\nassert "Plan agent" in prompt\nprint(json.dumps({"type":"thread.started","thread_id":"test-session"}))\nprint(json.dumps({"type":"item.completed","item":{"type":"agent_message","text":"A bounded plan with evidence references."}}))\n')
+            fake.write_text('import sys,json\nprompt=sys.stdin.read()\nassert "Plan agent" in prompt\nprint(json.dumps({"type":"thread.started","thread_id":"test-session"}))\nprint(json.dumps({"type":"item.completed","item":{"type":"agent_message","text":\'<acc_result>{"status":"succeeded","summary":"A bounded plan.","details":"Evidence references."}</acc_result>\'}}))\n')
             def call(op,args=None):return store.dispatch({'op':op,'args':args or {}})
             with patch('agents.argv',return_value=[sys.executable,str(fake)]):run(step,call,root)
             snap=store.snapshot();self.assertEqual(snap['steps'][0]['status'],'Succeeded');self.assertEqual(snap['steps'][0]['session'],'test-session')

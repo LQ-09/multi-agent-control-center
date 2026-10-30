@@ -11,7 +11,7 @@ import threading
 import time
 import uuid
 from agent_settings import DEFAULTS, defaults, selection
-from pathlib import Path
+from pathlib import Path, PureWindowsPath, PurePosixPath
 from datetime import datetime, timezone
 
 STATES = {'Draft','Queued','Planning','Running','Waiting for Dependency','Waiting for Approval','Paused','Blocked','Failed','Verifying','Completed','Cancelled'}
@@ -29,6 +29,41 @@ def redact(text):
     return text
 
 def clean(value, limit=12000): return redact(str(value))[:limit]
+
+def validate_execution_workspace(workspace):
+    path=PureWindowsPath(workspace) if PureWindowsPath(workspace).drive else PurePosixPath(workspace)
+    if not path.is_absolute() or len(path.parts)<3 or '..' in path.parts or workspace.rstrip('/\\').casefold()==str(Path.home()).rstrip('/\\').casefold():
+        raise ValueError('Choose an absolute project directory, not a drive root or home directory')
+    protected=[str(Path.home()/name) for name in ('.codex','.claude','.ssh','.aws')]
+    protected += [os.environ[key] for key in ('SystemRoot','ProgramFiles','ProgramFiles(x86)','CODEX_HOME','CODEX_SQLITE_HOME','CLAUDE_CONFIG_DIR') if os.environ.get(key)]
+    if PureWindowsPath(workspace).drive:
+        protected += ['C:/Windows','C:/Program Files','C:/Program Files (x86)']
+    if any(part.casefold() in ('.codex','.claude','.ssh','.aws') for part in path.parts):
+        raise ValueError('Native agent and credential directories cannot be execution workspaces')
+    for item in protected:
+        # Resolve native paths so aliases cannot grant access to protected stores.
+        if os.name=='nt' or not PureWindowsPath(item).drive:item=str(Path(item).expanduser().resolve())
+        other=PureWindowsPath(item) if PureWindowsPath(item).drive else PurePosixPath(item)
+        if type(path) is type(other) and (path==other or other in path.parents or path in other.parents):
+            raise ValueError('System, native agent and credential directories cannot be execution workspaces')
+    return workspace
+
+def result_contract(output, required=False):
+    """Parse the final handoff, never infer success from a CLI exit code."""
+    matches=re.findall(r'<acc_result>(.*?)</acc_result>', output, re.S)
+    if not matches:
+        if required or '<acc_result' in output: raise ValueError('Missing structured agent result; outcome is unverified.')
+        return None
+    if len(matches)!=1: raise ValueError('Expected exactly one structured agent result.')
+    try: result=json.loads(matches[0])
+    except (ValueError,TypeError): raise ValueError('Invalid structured agent result JSON.')
+    if not isinstance(result,dict) or result.get('status') not in ('succeeded','blocked','failed'):
+        raise ValueError('Invalid structured agent result status.')
+    summary=result.get('summary'); details=result.get('details')
+    if not isinstance(summary,str) or not summary.strip() or len(summary)>160 or '\n' in summary or '\r' in summary:
+        raise ValueError('Agent summary must be one line of 1–160 characters.')
+    if not isinstance(details,str): raise ValueError('Agent result details must be text.')
+    return {**result,'summary':clean(summary.strip(),160)}
 
 class Store:
     def __init__(self, root, demo=False, host=None):
@@ -64,6 +99,8 @@ class Store:
         columns={r[1] for r in self.db.execute('PRAGMA table_info(steps)')}
         for column in ('model','effort'):
             if column not in columns:self.db.execute(f"ALTER TABLE steps ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
+        task_columns={r[1] for r in self.db.execute('PRAGMA table_info(tasks)')}
+        if 'execution_mode' not in task_columns:self.db.execute("ALTER TABLE tasks ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'read-only'")
         self.db.commit()
     @contextmanager
     def transaction(self):
@@ -97,6 +134,11 @@ class Store:
         if not workspace or any(c in workspace for c in '\r\n\x00'): raise ValueError('An explicit execution workspace is required.')
         saved=self.agent_defaults(); agents=data.get('agents',saved['roles'])
         if len(agents)!=3 or any(not isinstance(a,str) or (a not in ('codex','claude') and not re.fullmatch(r'api:[a-z][a-z0-9_-]{0,39}',a)) for a in agents): raise ValueError('Choose supported agents for all three roles.')
+        execution_mode=data.get('execution_mode','read-only')
+        if execution_mode not in ('read-only','workspace-write'): raise ValueError('Unsupported execution mode')
+        if execution_mode=='workspace-write':
+            if agents[1]!='codex': raise ValueError('Workspace write currently requires Codex as executor')
+            validate_execution_workspace(workspace)
         options=data.get('agent_options')
         if options is None:options=[saved.get(a,{'model':'','effort':''}) for a in agents]
         if not isinstance(options,list) or len(options)!=3:raise ValueError('Provide model settings for all three roles')
@@ -111,9 +153,10 @@ class Store:
             self.reserve(); ident=uid()
             self.db.execute('INSERT INTO tasks(id,title,prompt,status,created,workspace,acceptance,demo) VALUES(?,?,?,?,?,?,?,?)',
                 (ident,clean(title),clean(prompt),'Draft',now(),workspace,clean(acceptance),int(self.demo)))
+            self.db.execute('UPDATE tasks SET execution_mode=? WHERE id=?',(execution_mode,ident))
             for pos,(role,host) in enumerate([('Plan',self.host or 'mac'),('Execute',self.host or 'windows'),('Review',self.host or 'mac')]):
                 self.db.execute('INSERT INTO steps(id,task_id,position,role,agent,host,status,model,effort) VALUES(?,?,?,?,?,?,?,?,?)',(uid(),ident,pos,role,agents[pos],host,'Pending',options[pos]['model'],options[pos]['effort']))
-            self.event(ident,'task.created','Task saved. Execution requires explicit Run. Read-only agent tools in this prototype.')
+            self.event(ident,'task.created',f'Task saved. Execution scope: {execution_mode}; planning and review remain read-only.')
             result={'id':ident}; self.db.execute('INSERT INTO commands VALUES(?,?,?)',(key,fingerprint,json.dumps(result)))
             return result
     def agent_defaults(self):
@@ -160,7 +203,7 @@ class Store:
             self.db.execute("UPDATE steps SET status='Running',attempt=?,lease=?,error=NULL WHERE id=?",(s['attempt'],s['lease'],s['id']))
             status='Planning' if s['position']==0 else 'Running'
             self.db.execute('UPDATE tasks SET status=?,revision=revision+1 WHERE id=?',(status,s['task_id']))
-            self.event(s['task_id'],'step.started',f"{s['role']} started on {host}; {s['agent']} read-only profile.",s,status)
+            self.event(s['task_id'],'step.started',f"{s['role']} started on {host}; {s['agent']} {self.get_task(s['task_id'])['execution_mode'] if s['role']=='Execute' else 'read-only'} profile.",s,status)
             t=self.get_task(s['task_id']); s['task']=t
             s['context']=[dict(r) for r in self.db.execute("SELECT role,output FROM steps WHERE task_id=? AND status='Succeeded' ORDER BY position",(s['task_id'],))]
             return s
@@ -188,9 +231,17 @@ class Store:
             s=self.check_attempt(step_id,attempt)
             if s['lease']<time.time(): raise ValueError('Expired attempt cannot publish a result')
             if s['error'] in ('pause requested','cancel requested') and not stopped: stopped=s['error'].split()[0]
+            result=None; summary=''
+            if not error and not stopped:
+                try: result=result_contract(output)
+                except ValueError as exc: error=str(exc)
+            if result:
+                summary=result['summary']
+                if result['status']!='succeeded': error=summary
             if stopped:
                 status='Paused' if stopped=='pause' else 'Cancelled'; step_status='Pending' if stopped=='pause' else 'Cancelled'
-            elif error: status='Failed'; step_status='Failed'
+            elif error:
+                status='Blocked' if result and result['status']=='blocked' else 'Failed'; step_status=status
             else:
                 step_status='Succeeded'; status='Verifying' if s['position']==2 else 'Queued'
                 content=clean(output,24000)
@@ -202,10 +253,13 @@ class Store:
                     self.db.execute('UPDATE tasks SET acceptance=? WHERE id=?',(criteria,s['task_id']))
                     self.event(s['task_id'],'acceptance.planned',criteria,s)
                 if not content.strip(): raise ValueError('Empty output cannot satisfy the step contract')
+            content=clean(output,24000)
+            if content.strip() and not stopped:
                 self.db.execute('INSERT INTO artifacts VALUES(?,?,?,?,?,?,?,?)',(uid(),s['task_id'],step_id,s['role'].lower()+'-handoff.md',digest(content),len(content.encode()),now(),content))
-            self.db.execute('UPDATE steps SET status=?,output=?,error=?,lease=NULL WHERE id=?',(step_status,clean(output,24000),clean(error or '',2000),step_id))
+            self.db.execute('UPDATE steps SET status=?,output=?,error=?,lease=NULL WHERE id=?',(step_status,content,clean(error or '',2000),step_id))
             self.db.execute('UPDATE tasks SET status=?,revision=revision+1 WHERE id=?',(status,s['task_id']))
-            self.event(s['task_id'],'step.finished',error or ('Stopped at user request.' if stopped else 'Result stored with SHA-256. CLI success is not task acceptance.'),s,status)
+            summary=summary or (error if error else 'Stopped at user request.' if stopped else next((line.strip() for line in output.splitlines() if line.strip()),'Result received.'))
+            self.event(s['task_id'],'step.finished',clean(summary,160),s,status)
             return {'status':status}
     def expire(self):
         with self.transaction():

@@ -1,4 +1,4 @@
-export type Task = {id:string;title:string;prompt:string;status:string;created:string;revision:number;workspace:string;acceptance:string;demo:number};
+export type Task = {execution_mode?:'read-only'|'workspace-write';id:string;title:string;prompt:string;status:string;created:string;revision:number;workspace:string;acceptance:string;demo:number};
 export type Step = {model?:string;effort?:string;id:string;task_id:string;position:number;role:string;agent:string;host:string;status:string;output:string;session?:string;error?:string};
 export type Event = {event_id:string;task_id:string;step_id?:string;sequence_number:number;agent_type:string;host_id:string;timestamp_utc:string;event_type:string;status:string;output_summary:string};
 export type Artifact = {id:string;task_id:string;name:string;sha256:string;size:number;created:string;content?:string};

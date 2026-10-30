@@ -32,3 +32,16 @@ body.floating-body{min-width:0!important;width:100vw;height:100vh;overflow:hidde
 .float-window{font-size:calc(10px * var(--font-scale,1.15));margin-top:6px;color:var(--muted)}.float-reset{font-size:calc(9px * var(--font-scale,1.15));color:var(--muted);line-height:1.5;margin-top:3px;overflow-wrap:anywhere}.float-warning{font-size:10px;color:#b77514;margin-top:4px}.float-details{border-top:1px solid var(--line);margin-top:10px;padding-top:8px;width:100%;text-align:left;overflow-wrap:anywhere}.float-details p,.float-details small,.float-empty,.float-content>p{font-size:11px;line-height:1.5;overflow-wrap:anywhere}.float-empty{text-align:center;padding:8px;color:var(--muted)}
 
 .model-source-path{display:block;overflow-wrap:anywhere;margin-top:6px;color:var(--muted)}
+
+/* Desktop quota rail: transparent outside intentional detail surfaces. */
+html.floating-html,html.floating-html body,html.floating-html #root{background:transparent!important}
+.floating-usage{width:116px;background:transparent;border:0;border-radius:0;box-shadow:none;opacity:.65;transition:opacity .18s}
+.floating-usage:hover,.floating-usage:focus-within{opacity:1}
+.float-toolbar{padding:2px;gap:0;opacity:0;transition:opacity .18s}
+.floating-usage:hover .float-toolbar,.floating-usage:focus-within .float-toolbar{opacity:1}
+.float-toolbar button{width:18px;height:22px;font-size:13px}.float-drag{padding:0;font-size:15px;line-height:22px}
+.float-content{padding:0 4px 4px}.float-account{padding:3px 0 7px}.float-account+.float-account{border-top:0}
+.float-agent-name{font-size:10px}.float-disclosure{display:none}.float-ring-button svg{width:54px;height:54px;margin:2px 0}
+.float-ring-button b{font-size:16px;letter-spacing:0}.float-ring-button b>.float-unknown{font-size:10px}
+.float-details{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px;margin-top:6px}
+.float-warning{font-size:9px}.float-ring-button{filter:drop-shadow(0 0 2px var(--panel))}

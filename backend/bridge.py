@@ -230,6 +230,8 @@ class Bridge:
         if op=='create' and self.config['mode']=='live' and args.get('agent_options') and not (self.info or {}).get('agent_controls'):
             if any(o.get('model') or o.get('effort') for o in args['agent_options']):
                 raise ValueError('Update the remote worker to v0.6 for account and model controls.')
+        if op=='create' and self.config['mode']=='live' and args.get('execution_mode')=='workspace-write' and not (self.info or {}).get('workspace_write'):
+            raise ValueError('Remote worker does not support scoped workspace writes. Update the worker before creating this task.')
         if op=='create' and self.config['mode']!='demo':
             saved=self.call('snapshot').get('agent_defaults',{})
             agents=args.get('agents',saved.get('roles',[]))

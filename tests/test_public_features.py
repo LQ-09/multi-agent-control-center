@@ -120,7 +120,7 @@ class EnvironmentTests(unittest.TestCase):
         ident=store.create({'key':'api-flow','title':'API workflow','prompt':'Analyze supplied text','workspace':self.tmp.name,'acceptance':'Three handoffs','agents':['api:test']*3})['id']
         store.control(ident,'run',1)
         providers=MagicMock();providers.get.return_value={'name':'Test','model':'mock'}
-        providers.complete.return_value='Mock provider evidence'
+        providers.complete.return_value='<acc_result>{"status":"succeeded","summary":"Mock provider evidence.","details":"Simulated evidence."}</acc_result>'
         def call(op,args):return store.dispatch({'op':op,'args':args})
         for _ in range(3):run(store.claim('local'),call,providers=providers)
         self.assertEqual(providers.complete.call_count,3)

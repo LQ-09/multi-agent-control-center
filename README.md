@@ -301,3 +301,11 @@ The desktop accessory is now a 172-point vertical rail, visually informed by com
 Model lists are CLI-host metadata, not the ChatGPT app's model menu. They refresh in the background and are cached for five minutes. Settings now identifies the selected list host, CLI path, source and successful model-query timestamp, and exposes query failures. In split mode, a Mac discovery result is not proof of the Windows list. Changing the viewed list host does not change the task authority; actual execution still validates on its assigned host. Usage timestamps do not refresh model-catalog validity. A failed usage query preserves independently acquired Claude models; a failed model refresh can display the last successful list explicitly marked stale, while execution still requires validation.
 
 Verification is limited to unit/render/build tests. The latest live Claude re-probe was blocked by automatic approval review because the CLI triggered a Datadog telemetry request whose payload was not established. No workaround was attempted. Native session/configuration/authentication directories were not edited.
+
+## 0.11: handoffs and project writes
+
+Create and run is the default; choose Save draft only to defer. The timeline shows one short result per agent step, with full output expandable and raw events in Debug logs. Agents must report succeeded/blocked/failed in a platform-injected contract; blocked steps stop the chain.
+
+To edit a project, explicitly select Workspace write and Codex as Executor. Only the existing selected project directory is writable through Codex's sandbox; CLI network access is enabled for Git. Planner/reviewer remain read-only. Drive roots/home directories are rejected. Remote workers must be redeployed before using this mode. This does not repair Windows runner installation issues; a runner timeout still blocks execution.
+
+Quota window uses native Tauri transparency/no shadow and compact vertical content; reset times are click-to-expand, host labels hidden, +/- scale is saved. Native approach references https://github.com/tauri-apps/window-vibrancy ; no third-party source was copied. CodexBar (https://github.com/steipete/CodexBar, MIT) was evaluated as a future usage integration, not bundled. macOS transparency uses Tauri's macos-private-api feature; no App Store compatibility claim.

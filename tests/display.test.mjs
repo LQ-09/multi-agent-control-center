@@ -10,8 +10,14 @@ globalThis.localStorage={getItem:key=>storage.get(key)??null,setItem:(key,value)
 globalThis.document={documentElement:{lang:'',style:{setProperty:(key,value)=>styles.set(key,value)}}};
 try{
  const outfile=join(temporary,'display.mjs');
- await build({stdin:{contents:"export * from './src/i18n';export * from './src/display';export * from './src/settings';export * from './src/agent-controls';export * from './src/floating-usage';export {renderToStaticMarkup as render} from 'react-dom/server';export {createElement as h} from 'react';",resolveDir:process.cwd(),loader:'tsx'},outfile,bundle:true,platform:'node',format:'esm',banner:{js:"import {createRequire} from 'node:module';const require=createRequire(import.meta.url);"}});
+ await build({stdin:{contents:"export * from './src/task-timeline';export * from './src/i18n';export * from './src/display';export * from './src/settings';export * from './src/agent-controls';export * from './src/floating-usage';export {renderToStaticMarkup as render} from 'react-dom/server';export {createElement as h} from 'react';",resolveDir:process.cwd(),loader:'tsx'},outfile,bundle:true,platform:'node',format:'esm',banner:{js:"import {createRequire} from 'node:module';const require=createRequire(import.meta.url);"}});
  const ui=await import(pathToFileURL(outfile));
+ assert.equal(ui.handoffSummary('<acc_result>{"status":"blocked","summary":"Missing access. More text.","details":"raw"}</acc_result>'),'Missing access.');
+ assert.equal(ui.handoffSummary('Legacy first line\nRaw second line'),'Legacy first line');
+ assert.equal(ui.handoffSummary('x'.repeat(300)).length,160);
+ const timeline=ui.render(ui.h(ui.TaskTimeline,{steps:[{id:'s',role:'Plan',agent:'codex',status:'Blocked',output:'Result. Raw detail.',error:''}]}));
+ const legacy=ui.render(ui.h(ui.TaskTimeline,{steps:[{id:'legacy',role:'Execute',agent:'codex',status:'Succeeded',output:'Legacy output.'}]}));assert.match(legacy,/已收到输出，结果未核实/);assert.doesNotMatch(legacy,/pill green/);
+ assert.match(timeline,/<details>/);assert.match(timeline,/Result\.<\/p>/);assert.match(timeline,/Raw detail/);
  assert.equal(ui.tr('Settings'),'设置');assert.equal(document.documentElement.lang,'zh-CN');
  for(const size of ui.fontSizes){ui.setFontSize(size);assert.equal(styles.get('--font-scale'),String(size/100))}
  ui.setFontSize(900);assert.equal(styles.get('--font-scale'),'1.15');
@@ -29,11 +35,14 @@ try{
  assert.match(rendered,/思考强度/);assert.match(rendered,/my-model/);assert.match(rendered,/value="high" selected/);
  rendered=ui.render(ui.h(ui.UsageSidebar,{status:{hosts:{local:{agents:{codex:{status:'ok',meters:[{label:'300 min',scope:'shared',remaining_percent:42,resets_at:null}],models:[]},claude:{status:'unavailable',reason:'CLI not found on this host.',meters:[],models:[]}}}}},error:'',refresh:()=>{},providers:[],settings:()=>{}}));
  assert.match(rendered,/42/);assert.match(rendered,/此主机未找到/);assert.doesNotMatch(rendered,/100%/);
+ assert.equal(ui.usageZoom(.1),.65);assert.equal(ui.usageZoom(9),1.5);assert.equal(ui.usageZoom(NaN),1);
  assert.equal(ui.quotaColor(71),'#269b60');assert.equal(ui.quotaColor(70),'#df9225');assert.equal(ui.quotaColor(30),'#df9225');assert.equal(ui.quotaColor(29),'#df4949');assert.equal(ui.quotaColor(null),'#8a8a8a');
  rendered=ui.render(ui.h(ui.QuotaRing,{agent:'codex',value:10}));assert.match(rendered,/#df4949/);assert.match(rendered,/stroke-dasharray/);assert.match(rendered,/10%/);
  rendered=ui.render(ui.h(ui.QuotaRing,{agent:'claude',value:null}));assert.match(rendered,/未知/);assert.doesNotMatch(rendered,/100%/);
  const visible=ui.visibleAccounts({codex:{status:'ok',meters:[],models:[]},claude:{reason:'CLI not found on this host.',meters:[],models:[]}});assert.equal(visible.length,1);
- rendered=ui.render(ui.h(ui.AccountTile,{agent:'codex',account:{status:'ok',meters:[{label:'Weekly',remaining_percent:10,resets_at:null}],models:[]},now:0}));assert.match(rendered,/float-agent-name/);assert.match(rendered,/10/);assert.doesNotMatch(rendered,/overflow:auto/);
+ rendered=ui.render(ui.h(ui.AccountTile,{agent:'codex',account:{status:'ok',meters:[{label:'Weekly',remaining_percent:10,resets_at:null}],models:[]},now:0}));assert.match(rendered,/float-agent-name/);assert.match(rendered,/10/);assert.doesNotMatch(rendered,/overflow:auto/);assert.doesNotMatch(rendered,/Weekly|float-reset|float-window/);
+ assert.deepEqual(ui.visibleUsageHosts({hosts:{remote:{agents:{},error:'Update the remote worker to v0.6 for account and model controls.'},local:{agents:{}}}}).map(([host])=>host),['local']);
+ assert.equal(ui.visibleUsageHosts({hosts:{remote:{agents:{},error:'Remote environment is not connected.'}}}).length,1);
  const original=[{label:'5 hours',remaining_percent:50},{label:'Weekly',remaining_percent:10}];
  assert.equal(ui.orderedMeters(original)[0].label,'Weekly');assert.equal(original[0].label,'5 hours');
  ui.setLanguage('en');assert.equal(ui.resetCountdown('2030-01-02T02:30:00Z',Date.parse('2030-01-01T00:00:00Z')),'Resets in 1d 2h 30m');

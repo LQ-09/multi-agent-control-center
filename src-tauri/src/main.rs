@@ -78,14 +78,19 @@ async fn backend_rpc(app: tauri::AppHandle, backend: State<'_, Backend>, request
     }).await.map_err(|e| e.to_string())?
 }
 #[tauri::command]
-fn fit_usage(window: tauri::WebviewWindow, height: f64) -> Result<f64, String> {
+fn fit_usage(window: tauri::WebviewWindow, height: f64, width: Option<f64>, zoom: Option<f64>) -> Result<f64, String> {
     if window.label() != "usage" || !height.is_finite() || !(40.0..=20000.0).contains(&height) {
         return Err("Invalid usage window size".into());
     }
+    let width = width.unwrap_or(172.0);
+    let zoom = zoom.unwrap_or(1.0);
+    if !width.is_finite() || !(80.0..=400.0).contains(&width) || !zoom.is_finite() || !(0.65..=1.5).contains(&zoom) {
+        return Err("Invalid usage window scale".into());
+    }
     let monitor = window.current_monitor().map_err(|e|e.to_string())?;
     let available = monitor.as_ref().map(|m| m.work_area().size.height as f64 / m.scale_factor() - 16.0).unwrap_or(800.0);
-    let scale = (available / height).min(1.0);
-    window.set_size(tauri::LogicalSize::new(172.0 * scale, height * scale)).map_err(|e|e.to_string())?;
+    let scale = (available / height).min(zoom);
+    window.set_size(tauri::LogicalSize::new(width * scale, height * scale)).map_err(|e|e.to_string())?;
     if let Some(m) = monitor {
         let area = m.work_area();
         let size = window.outer_size().map_err(|e|e.to_string())?;

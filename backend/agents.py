@@ -9,7 +9,7 @@ import threading
 import queue
 import time
 from pathlib import Path
-from core import clean, uid
+from core import clean, uid, result_contract
 from agent_settings import selection
 
 CHILDREN = set()
@@ -31,14 +31,16 @@ def version(agent):
         return {'available':p.returncode==0,'path':binary,'version':clean(p.stdout.strip() or p.stderr,300)}
     except Exception as e: return {'available':False,'error':clean(e,300)}
 
-def argv(agent, model="", effort=""):
+def argv(agent, model="", effort="", execution_mode="read-only"):
+    if execution_mode not in ("read-only", "workspace-write") or (execution_mode=="workspace-write" and agent!="codex"):
+        raise ValueError("Workspace writes require Codex Execute")
     selection(agent,{"model":model,"effort":effort})
     extra=(["--model",model] if model else [])
     if effort:extra+=(["-c",'model_reasoning_effort="'+effort+'"'] if agent=="codex" else ["--effort",effort])
     binary=shutil.which(agent)
     if not binary: raise ValueError(f'{agent} is not installed or not visible in the background process PATH')
     if agent=='codex':
-        return [binary,*extra,'-a','never','exec','--json','--sandbox','read-only','--skip-git-repo-check','-']
+        return [binary,*extra,*(['-c','sandbox_workspace_write.network_access=true','-c','sandbox_workspace_write.writable_roots=[]','-c','sandbox_workspace_write.exclude_tmpdir_env_var=true','-c','sandbox_workspace_write.exclude_slash_tmp=true'] if execution_mode=='workspace-write' else []),'-a','never','exec','--json','--sandbox',execution_mode,'--skip-git-repo-check','-']
     # No shell, filesystem or MCP tools are enabled for this Claude prototype adapter.
     if agent=='claude':
         return [binary,*extra,'-p','--output-format','stream-json','--verbose','--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--permission-mode','dontAsk']
@@ -46,11 +48,15 @@ def argv(agent, model="", effort=""):
 
 def prompt_for(s):
     context='\n\n'.join(x['role']+':\n'+x['output'][:10000] for x in s['context'])
-    return (f"You are the {s['role']} agent in a read-only orchestration prototype. Do not modify files, run destructive actions, trade, submit forms, or handle credentials. "
-        'Produce a concise useful result, state assumptions and unverified claims. This prototype cannot implement file changes. '
-        'If asked to implement, provide a patch proposal and verification plan as text only. '
-        'For Plan: outline a short approach. If Acceptance is empty, derive concrete, checkable acceptance criteria from the goal and append them inside <acceptance_criteria>...</acceptance_criteria> (maximum 2000 characters). Separate evidence that can be checked from work this read-only prototype cannot perform. For Execute: answer or analyze using permitted read-only tools. '
+    writable=s['role']=='Execute' and s['task'].get('execution_mode')=='workspace-write'
+    scope=(f"You may modify project files only inside the selected workspace: {s['task']['workspace']}. " if writable else 'This role is read-only: do not modify files; provide proposals as text only. ')
+    return (f"You are the {s['role']} agent in Agent Control Center. "+scope+
+        'Do not run destructive actions, trade, submit forms, or handle credentials. Produce a concise useful result, state assumptions and unverified claims. '
+        'For Plan: outline a short approach. If Acceptance is empty, derive concrete, checkable acceptance criteria from the goal and append them inside <acceptance_criteria>...</acceptance_criteria> (maximum 2000 characters). Separate verified evidence from unavailable work. For Execute: use only tools permitted by the assigned execution scope. '
         'For Review: inspect supplied results and explain whether the acceptance criteria are satisfied; never claim tests ran without evidence.\n'
+        'Final output contract (all roles): emit exactly one <acc_result>{"status":"succeeded|blocked|failed","summary":"one sentence, at most 160 characters, no newlines","details":"evidence, changes, verification and limitations"}</acc_result>. '
+        'Use blocked when permissions, tools, connectivity or missing evidence prevent the assigned work; use failed when verification fails. Never report succeeded just because you produced text. '
+        'For Review, succeeded requires that the supplied evidence satisfies acceptance; otherwise blocked or failed. Keep acceptance_criteria outside acc_result. Do not quote prior acc_result tags.\n'
         f"Task: {s['task']['prompt']}\nAcceptance: {s['task']['acceptance']}\nPrior handoffs:\n{context}")
 
 def stop_process(p):
@@ -99,6 +105,7 @@ def run(s, call, mac_workspace=None, demo=False, providers=None):
                 try: ok,value=result.get(timeout=2)
                 except queue.Empty: continue
                 if not ok: raise value
+                result_contract(value,required=True)
                 return call('finish',{**common,'output':value})
         if s.get('model') or s.get('effort'):
             from agent_monitor import probe_codex, claude_models
@@ -109,7 +116,15 @@ def run(s, call, mac_workspace=None, demo=False, providers=None):
             validate_catalog(s['agent'],{'model':s.get('model',''),'effort':s.get('effort','')},models)
         cwd=Path(mac_workspace if s['host']=='mac' else s['task']['workspace']).expanduser().resolve()
         if not cwd.is_dir(): raise ValueError('Execution workspace does not exist: '+str(cwd))
-        command=argv(s['agent'],s.get('model',''),s.get('effort',''))
+        mode=s['task'].get('execution_mode','read-only') if s['role']=='Execute' else 'read-only'
+        if mode=='workspace-write':
+            from core import validate_execution_workspace
+            validate_execution_workspace(str(cwd))
+            home=Path.home().resolve()
+            protected=[home/'.codex',home/'.claude',home/'.ssh']
+            if cwd==home or any(cwd==p or p in cwd.parents or cwd in p.parents for p in protected):
+                raise ValueError('Choose a dedicated project directory, not a home or native agent directory')
+        command=argv(s['agent'],s.get('model',''),s.get('effort',''),mode)
         report(json.dumps({'type':'agent.configuration','agent':s['agent'],'model':s.get('model') or 'CLI default','effort':s.get('effort') or 'CLI default'}))
         if os.name=='nt' and command[0].lower().endswith(('.cmd','.bat')):
             # Only the trusted installed CLI shim is passed to cmd; task text is stdin, never argv.
@@ -153,7 +168,9 @@ def run(s, call, mac_workspace=None, demo=False, providers=None):
         rc=p.wait(timeout=10)
         if rc!=0: raise ValueError(f'{s["agent"]} exited with code {rc}. See redacted timeline.')
         if not output: raise ValueError('CLI finished without a supported final response; parser compatibility needs verification.')
-        return call('finish',{**common,'output':'\n'.join(output)[-24000:]})
+        final='\n'.join(output)[-24000:]
+        result_contract(final,required=True)
+        return call('finish',{**common,'output':final})
     except Exception as e:
         if p:
             try: stop_process(p)
