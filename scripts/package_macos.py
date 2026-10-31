@@ -45,7 +45,7 @@ try:
     if not key:
         raise SystemExit('Set ACC_UPDATER_KEY to the private signing key path; no unsigned update is published.')
     subprocess.run(['npx', 'tauri', 'signer', 'sign', '-f', key, '-p', '', '--app-version', version, str(archive)], check=True)
-    manifest={'version':version,'notes':'Retry blocked steps without recreating tasks; deduplicate quota accounts across hosts. 重试受阻步骤，保留历史；跨主机同账号额度去重。',
+    manifest={'version':version,'notes':'Windows-first automatic routing with safe local fallback; task restart/trash; latest handoff versions. 默认全程 Windows，离线自动使用兼容本机项目；重启与回收站；产物默认最新版。',
         'platforms':{'darwin-aarch64':{'url':f'https://github.com/LQ-09/multi-agent-control-center/releases/download/v{version}/{archive.name}',
         'signature':Path(str(archive)+'.sig').read_text().strip()}}}
     (root/'build/latest.json').write_text(json.dumps(manifest,indent=2)+'\n')

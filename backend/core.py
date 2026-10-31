@@ -101,6 +101,7 @@ class Store:
             if column not in columns:self.db.execute(f"ALTER TABLE steps ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
         task_columns={r[1] for r in self.db.execute('PRAGMA table_info(tasks)')}
         if 'execution_mode' not in task_columns:self.db.execute("ALTER TABLE tasks ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'read-only'")
+        if 'archived' not in task_columns:self.db.execute("ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
         self.db.commit()
     @contextmanager
     def transaction(self):
@@ -154,7 +155,8 @@ class Store:
             self.db.execute('INSERT INTO tasks(id,title,prompt,status,created,workspace,acceptance,demo) VALUES(?,?,?,?,?,?,?,?)',
                 (ident,clean(title),clean(prompt),'Draft',now(),workspace,clean(acceptance),int(self.demo)))
             self.db.execute('UPDATE tasks SET execution_mode=? WHERE id=?',(execution_mode,ident))
-            for pos,(role,host) in enumerate([('Plan',self.host or 'mac'),('Execute',self.host or 'windows'),('Review',self.host or 'mac')]):
+            preferred=self.host or ('windows' if data.get('routing')=='windows-first' else None)
+            for pos,(role,host) in enumerate([('Plan',preferred or 'mac'),('Execute',preferred or 'windows'),('Review',preferred or 'mac')]):
                 self.db.execute('INSERT INTO steps(id,task_id,position,role,agent,host,status,model,effort) VALUES(?,?,?,?,?,?,?,?,?)',(uid(),ident,pos,role,agents[pos],host,'Pending',options[pos]['model'],options[pos]['effort']))
             self.event(ident,'task.created',f'Task saved. Execution scope: {execution_mode}; planning and review remain read-only.')
             result={'id':ident}; self.db.execute('INSERT INTO commands VALUES(?,?,?)',(key,fingerprint,json.dumps(result)))
@@ -173,9 +175,21 @@ class Store:
             t=self.get_task(ident)
             if t['revision']!=revision: raise ValueError('Task changed; refresh before applying this action.')
             active=self.db.execute("SELECT * FROM steps WHERE task_id=? AND status='Running'",(ident,)).fetchone()
-            if action=='run':
+            if t['archived'] and action!='restore': raise ValueError('Restore this task before running it.')
+            if action in ('restart','archive'):
+                unsafe=self.db.execute("SELECT * FROM steps WHERE task_id=? AND (lease IS NOT NULL OR status='Running' OR lower(COALESCE(error,'')) LIKE '%unknown%' OR lower(COALESCE(error,'')) LIKE '%unconfirmed%')",(ident,)).fetchone()
+                if unsafe or t['status'] in ('Queued','Running','Planning'): raise ValueError('Pause and reconcile active or unknown execution before restarting or deleting.')
+            if action in ('archive','restore'):
+                self.db.execute('UPDATE tasks SET archived=?,revision=revision+1 WHERE id=?',(int(action=='archive'),ident))
+                self.event(ident,'task.'+action,'Task moved to trash; history retained.' if action=='archive' else 'Task restored.')
+                return {'status':t['status'],'archived':action=='archive'}
+            if action=='restart':
+                self.db.execute("UPDATE steps SET status='Pending',attempt=NULL,session=NULL,lease=NULL,error=NULL,output='' WHERE task_id=?",(ident,))
+                status='Queued'
+            elif action=='run':
                 if t['status'] not in ('Draft','Paused'): raise ValueError('Only draft or paused tasks can be started.')
                 if active: raise ValueError('Previous process is still stopping.')
+                if self.db.execute("SELECT 1 FROM steps WHERE task_id=? AND status IN ('Failed','Blocked','Cancelled')",(ident,)).fetchone(): raise ValueError('Use retry or restart for interrupted steps.')
                 status='Queued'
             elif action=='retry':
                 if t['status'] not in ('Blocked','Failed','Paused'): raise ValueError('Only blocked, failed or paused tasks can be retried.')
@@ -205,7 +219,7 @@ class Store:
             self.reserve()
             # A fixed, inspectable linear DAG in the prototype. General plan DAGs remain a later phase.
             s=self.db.execute("""SELECT s.* FROM steps s JOIN tasks t ON t.id=s.task_id
-            WHERE s.host=? AND s.status='Pending' AND t.status IN ('Queued','Running','Planning')
+            WHERE t.archived=0 AND s.host=? AND s.status='Pending' AND t.status IN ('Queued','Running','Planning')
             AND NOT EXISTS (SELECT 1 FROM steps p WHERE p.task_id=s.task_id AND p.position<s.position AND p.status!='Succeeded')
             ORDER BY t.created,s.position LIMIT 1""",(host,)).fetchone()
             if not s: return None
@@ -284,9 +298,28 @@ class Store:
             return {'agent_defaults':self.agent_defaults(),'tasks':[dict(r) for r in self.db.execute('SELECT * FROM tasks ORDER BY created DESC LIMIT 200')],
                 'steps':[dict(r) for r in self.db.execute('SELECT * FROM steps ORDER BY position LIMIT 1000')],
                 'events':[dict(r) for r in self.db.execute('SELECT * FROM events ORDER BY sequence_number DESC LIMIT 160')][::-1],
-                'artifacts':[dict(r) for r in self.db.execute('SELECT id,task_id,step_id,name,sha256,size,created FROM artifacts ORDER BY created DESC LIMIT 200')],
+                'artifacts':self.latest_artifacts(),
                 'storage':{'metadata_bytes':self.size(),'metadata_limit':MAX_DB,'disk_free':shutil.disk_usage(self.root).free,'root':str(self.root)},
                 'history':[dict(r) for r in self.db.execute('SELECT * FROM history ORDER BY timestamp DESC LIMIT 100')]}
+    def latest_artifacts(self):
+        rows=self.db.execute('''SELECT a.*,t.title AS task_title,
+            (SELECT count(*) FROM artifacts v WHERE v.task_id=a.task_id AND v.step_id IS a.step_id AND v.name=a.name) AS versions
+            FROM artifacts a JOIN tasks t ON t.id=a.task_id WHERE t.archived=0
+            AND NOT EXISTS (SELECT 1 FROM artifacts n WHERE n.task_id=a.task_id AND n.step_id IS a.step_id AND n.name=a.name
+                AND (n.created>a.created OR (n.created=a.created AND n.rowid>a.rowid)))
+            ORDER BY a.created DESC LIMIT 200''')
+        result=[]
+        for row in rows:
+            item=dict(row); content=item.pop('content')
+            try: parsed=result_contract(content)
+            except ValueError: parsed=None
+            item['summary']=parsed['summary'] if parsed else next((x.strip()[:160] for x in content.splitlines() if x.strip()),'')
+            result.append(item)
+        return result
+    def artifact_versions(self, ident):
+        with self.lock:
+            a=self.artifact(ident)
+            return [dict(r) for r in self.db.execute('SELECT id,task_id,step_id,name,sha256,size,created FROM artifacts WHERE task_id=? AND step_id IS ? AND name=? ORDER BY created DESC,rowid DESC LIMIT 100',(a['task_id'],a['step_id'],a['name']))]
     def artifact(self, ident):
         with self.lock:
             row=self.db.execute('SELECT * FROM artifacts WHERE id=?',(ident,)).fetchone()
@@ -314,6 +347,7 @@ class Store:
         if op=='record': return self.record(**a)
         if op=='finish': return self.finish(**a)
         if op=='artifact': return self.artifact(a['id'])
+        if op=='artifact_versions': return self.artifact_versions(a['id'])
         if op=='cursor': return self.cursor(a['source'])
         if op=='import_batch': return self.import_batch(**a)
         raise ValueError('Unknown service operation')

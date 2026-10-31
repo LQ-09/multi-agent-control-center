@@ -154,3 +154,31 @@ Explicit retry (0.11.1) preserves prior successful steps and immutable artifacts
 clears only the failed step's live attempt, and rejects active/expired/unknown attempts.
 A paused failed task is also retryable. Updates may proceed with finished blocked
 steps, but not running, queued or unknown execution state.
+
+## 0.11.2 routing and recovery amendment
+
+This supersedes the earlier no-fallback rule for new, portable tasks in Windows
+SSH environments. `routing=auto` is the default; `manual` retains the explicit
+execution layout. The controller sends `routing=windows-first`, and the authority
+creates all three steps on its Windows executor. Host assignment is immutable
+for existing tasks; the interactive worker uses the same profile/claim protocol.
+Capability negotiation rejects older authorities before any automatic submission.
+
+A durable submission-route ledger pins the idempotency key, request hash, authority
+and transformed workspace before sending remote RPC. Transport failures retain
+that pin. An explicit server rejection permits correction; uncertain requests
+never move to another authority. Offline new tasks require portable intent, an
+existing local project and matching local CLI/model support. They use an isolated
+80 MB local fallback Store with local leases, stay there after reconnect/restart,
+and appear beside remote tasks with provenance. Remote snapshots remain stale
+while disconnected. No DB, native session or repository replication occurs.
+Automatic reconnect is throttled to 30 seconds. Remote task execution outcomes
+remain unknown after lease loss, with no replay. Local fallback history is not
+a full cross-host synchronization implementation.
+
+Additive `tasks.archived` hides tasks from normal boards and their artifacts from
+the explorer. Restore preserves status. Restart fences prior attempts and resets
+all steps; retry resets only the failed dependency. Live, retained-lease and
+unknown/unconfirmed outcomes cannot be restarted or archived. Events stay append-only.
+Latest-artifact selection groups by task/step/name before limiting the result;
+older versions stay immutable and are retrieved on demand (up to 100 per group).

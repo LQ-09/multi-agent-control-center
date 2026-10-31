@@ -13,13 +13,14 @@ import time
 from pathlib import Path
 from core import Store, clean
 from agents import run, version, cleanup
+from routing import Routing
 from history import scan
 from providers import Providers, PRESETS
 from agent_monitor import AgentMonitor
 
 DEFAULT = {'ssh_alias':'worker','windows_python':'python3','windows_service':'/home/user/agent-control-center/backend/service.py',
     'windows_root':'/home/user/agent-control-center/state','mac_workspace':str(Path.home()),
-    'mode':'local','remote_os':'posix','profile':'single'}
+    'mode':'local','remote_os':'posix','profile':'single','routing':'auto'}
 
 def remote_command(config):
     argv=[config['windows_python'],'-u',config['windows_service'],'--root',config['windows_root']]
@@ -28,6 +29,9 @@ def remote_command(config):
     def ps(value): return "'"+value.replace("'","''")+"'"
     script="$ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference = 'Stop'; $env:PYTHONIOENCODING = 'utf-8'; & "+' '.join(map(ps,argv))
     return 'powershell.exe -NoProfile -NonInteractive -EncodedCommand '+base64.b64encode(script.encode('utf-16-le')).decode()
+
+class RemoteRejected(ValueError):
+    pass
 
 class Remote:
     def __init__(self, config):
@@ -52,7 +56,7 @@ class Remote:
                 self.close(); raise TimeoutError('Remote response timed out; no automatic request replay. '+''.join(self.errors))
             if line is None: raise RuntimeError('Remote service disconnected. '+''.join(self.errors))
             result=json.loads(line)
-            if not result.get('ok'): raise ValueError(result.get('error','Remote error'))
+            if not result.get('ok'): raise RemoteRejected(result.get('error','Remote error'))
             return result['data']
     def close(self):
         if self.p.poll() is None: self.p.terminate()
@@ -71,13 +75,17 @@ class Bridge:
         self.environments=json.loads(env_path.read_text()) if env_path.exists() else []
         self.demo=Store(self.cache/'demo',demo=True)
         self.local=Store(self.cache/'local',host='local')
+        self.fallback=Store(self.cache/'fallback',host='local'); self.routing=Routing(self.fallback)
+        self.next_reconnect=0
         self.providers=Providers(self.cache/'local'); self.monitor=AgentMonitor()
         self.remote=None; self.connected=self.config['mode']=='local'; self.info=None
-        self.update_pending=False; self.error=None; self.active=False; self.stop=False; self.last_live=None
+        self.update_pending=False; self.error=None; self.active=False; self.active_remote=False; self.stop=False; self.last_live=None
         self.needs_connect=self.config['mode']=='live'
         self.local_agents={a:version(a) for a in ('codex','claude')}
         self.execution_lock=threading.RLock()
         threading.Thread(target=self.loop,daemon=True).start()
+    def automatic(self):
+        return self.config['mode']=='live' and self.config['remote_os']=='windows' and self.config.get('routing','auto')=='auto'
     def call(self,op,args=None):
         if self.config['mode'] in ('demo','local'):
             store=self.demo if self.config['mode']=='demo' else self.local
@@ -93,18 +101,25 @@ class Bridge:
                         if not self.active:
                             s=(self.call('claim',{'host':'mac'}) or self.call('claim',{'host':'windows'})) if self.config['mode']=='demo' else self.call('claim',{'host':'local'})
                             if s: self.start(s,self.config['mode']=='demo')
-                    elif self.connected:
-                        self.remote.call('tick')
-                        if self.config['profile']=='split' and not self.active:
+                    elif self.config['mode']=='live':
+                        if not self.active:
+                            s=self.fallback.claim('local')
+                            if s: self.start(s,False,local_fallback=True)
+                        if not self.connected: continue_tick=False
+                        else:
+                            self.remote.call('tick')
+                            continue_tick=True
+                        if continue_tick and self.config['profile']=='split' and not self.active:
                             s=self.call('claim',{'host':'mac'})
                             if s: self.start(s,False)
             except Exception as e:
                 self.error=clean(e,1000)
                 if self.config['mode']=='live': self.connected=False
             time.sleep(.6)
-    def start(self,s,demo):
+    def start(self,s,demo,local_fallback=False):
         self.active=True
-        target=self.demo.dispatch if demo else self.local.dispatch if self.config['mode']=='local' else None
+        target=self.fallback.dispatch if local_fallback else self.demo.dispatch if demo else self.local.dispatch if self.config['mode']=='local' else None
+        self.active_remote=target is None
         remote=self.remote; workspace=self.config['mac_workspace']
         def call(op,args=None): return target({'op':op,'args':args or {}}) if target else remote.call(op,args)
         def work():
@@ -113,6 +128,8 @@ class Bridge:
         threading.Thread(target=work,daemon=True).start()
     def idle(self, allow_finished_blocks=False):
         if self.active: raise ValueError('Stop active work before changing environments or providers.')
+        fallback=self.fallback.snapshot()
+        if any(t['status'] in ('Queued','Planning','Running') for t in fallback['tasks']) or any(s.get('lease') is not None or any(x in (s.get('error') or '').lower() for x in ('unknown','unconfirmed')) for s in fallback['steps']): raise ValueError('Pause local fallback tasks before changing environments or updating.')
         snap=self.call('snapshot') if self.config['mode']!='live' or self.connected else self.last_live
         unsafe = snap and (any(t['status'] in ('Running','Planning','Queued') or (t['status']=='Blocked' and not allow_finished_blocks) for t in snap['tasks']) or any(s.get('lease') is not None or any(x in (s.get('error') or '').lower() for x in ('unknown','unconfirmed')) for s in snap.get('steps',[])))
         if unsafe:
@@ -120,6 +137,7 @@ class Bridge:
     @staticmethod
     def validate_config(config):
         if set(config)!=set(DEFAULT): raise ValueError('Unknown or missing environment setting')
+        if config.get('routing') not in ('auto','manual'): raise ValueError('Invalid routing policy')
         if config['mode'] not in ('demo','local','live') or config['profile'] not in ('single','split') or config['remote_os'] not in ('posix','windows'):
             raise ValueError('Invalid environment mode, profile or OS')
         if config['profile']=='split' and config['remote_os']!='windows': raise ValueError('Split profile requires an explicit Windows authority')
@@ -129,7 +147,14 @@ class Bridge:
         return config
     def dispatch(self,r):
         # Serialize control changes with claims; never dispatch an old step onto a newly selected authority.
-        with self.execution_lock: return self._dispatch(r)
+        with self.execution_lock:
+            try: return self._dispatch(r)
+            except RemoteRejected:
+                # A definitive server rejection is safe to correct; transport errors retain the pin.
+                if r.get('op')=='create':
+                    with self.fallback.transaction():
+                        self.fallback.db.execute("DELETE FROM submission_routes WHERE key=? AND authority!='local'",(r.get('args',{}).get('key'),))
+                raise
     def _dispatch(self,r):
         op=r.get('op'); args=r.get('args',{})
         if op=='prepare_update':
@@ -146,14 +171,21 @@ class Bridge:
         if op=='snapshot':
             stale=False
             try:
-                if self.needs_connect:
+                if self.needs_connect or (self.automatic() and not self.connected and (not self.active or not self.active_remote) and time.monotonic()>=self.next_reconnect):
                     self.needs_connect=False; self.dispatch({'op':'connect'})
                 data=self.call('snapshot')
                 if self.config['mode']=='live': self.last_live=data
             except Exception as e:
                 self.connected=False; self.error=clean(e,1000); stale=True
                 data=self.last_live or {'tasks':[],'steps':[],'events':[],'artifacts':[],'history':[],'storage':{}}
-            return {**data,'mode':self.config['mode'],'connected':self.connected,'stale':stale,'connection':self.config,'error':self.error,
+            if self.config['mode']=='live':
+                local=self.fallback.snapshot()
+                data={**data,**{key:[dict(x,authority='remote') for x in data.get(key,[])]+[dict(x,authority='local') for x in local[key]] for key in ('tasks','steps','events','artifacts')}}
+            if self.config['mode']=='live':
+                data['tasks'].sort(key=lambda t:t.get('created',''),reverse=True)
+                data['artifacts'].sort(key=lambda a:a.get('created',''),reverse=True)
+                data['events'].sort(key=lambda e:(e.get('timestamp_utc',''),e.get('authority',''),e.get('sequence_number',0)))
+            return {**data,'automatic_fallback':self.automatic(),'mode':self.config['mode'],'connected':self.connected,'stale':stale,'connection':self.config,'error':self.error,
                 'environments':self.environments,'providers':data.get('providers',[]) if self.config['mode']=='live' else self.providers.list(),'provider_presets':PRESETS,
                 'hosts':{'mac':{'host':platform.node(),'os':platform.system(),'agents':self.local_agents},'windows':self.info},
                 'mac_storage':{'managed_bytes':sum(p.stat().st_size for p in self.cache.rglob('*') if p.is_file()),'budget':1_000_000_000,'disk_free':shutil.disk_usage(self.cache).free},
@@ -179,7 +211,7 @@ class Bridge:
         if op=='save_environment':
             ident=args.get('id',''); name=args.get('name','')
             if not re.fullmatch(r'[a-z][a-z0-9_-]{0,39}',ident) or not isinstance(name,str) or not name.strip() or len(name)>80: raise ValueError('Enter a profile ID and name')
-            config=self.validate_config(args['config'])
+            config=self.validate_config({**DEFAULT,**args['config']})
             profiles=[x for x in self.environments if x['id']!=ident]+[{'id':ident,'name':name,'config':config}]
             if len(profiles)>16: raise ValueError('At most 16 saved environments are supported')
             (self.cache/'environments.json').write_text(json.dumps(profiles,indent=2)); self.environments=profiles
@@ -196,8 +228,8 @@ class Bridge:
             self.config=new; self.needs_connect=new['mode']=='live'
             (self.cache/'connection.json').write_text(json.dumps(new,indent=2)); return new
         if op=='connect':
-            self.needs_connect=False
-            if self.active: raise ValueError('A local agent is still active')
+            self.needs_connect=False; self.next_reconnect=time.monotonic()+30
+            if self.active and self.active_remote: raise ValueError('A remote-owned local agent is still active')
             if self.config['mode']!='live': raise ValueError('Select an SSH environment first')
             if self.remote: self.remote.close()
             try:
@@ -210,6 +242,21 @@ class Bridge:
                 self.connected=False; self.error=clean(e,2000)
                 if self.remote: self.remote.close()
                 raise
+        if self.config['mode']=='live' and op in ('control','artifact','artifact_versions') and self.routing.owns(op,args.get('id')):
+            return self.fallback.dispatch({'op':op,'args':args})
+        if op=='create' and self.automatic():
+            if self.connected and not (self.info or {}).get('windows_first'): raise ValueError('Update the Windows backend for automatic all-Windows routing.')
+            local,payload=self.routing.submission(args,self.config,self.connected)
+            if local:
+                saved=self.fallback.agent_defaults()
+                agents=payload.get('agents',saved['roles']); options=payload.get('agent_options') or [saved.get(a,{}) for a in agents]
+                for agent,option in zip(agents,options):
+                    if not self.local_agents.get(agent,{}).get('available'): raise ValueError('Local fallback CLI unavailable: '+agent)
+                    self.monitor.validate_selection(agent,option)
+                return self.fallback.create(payload)
+            args=payload
+        if op in ('artifact_versions',) or (op=='control' and args.get('action') in ('restart','archive','restore')):
+            if self.config['mode']=='live' and not (self.info or {}).get('task_management'): raise ValueError('Update the remote backend for task recovery and artifact history.')
         if self.config['mode']=='live' and op in ('provider_models','save_provider','save_agent_defaults') and not (self.info or {}).get('model_catalog'):
             raise ValueError('Update the remote worker to v0.9 for validated model selection.')
         if op=='provider_models':
@@ -242,12 +289,12 @@ class Bridge:
             if self.config['mode']=='live' and any(o.get('model') or o.get('effort') for o in options) and not (self.info or {}).get('model_catalog'):
                 raise ValueError('Update the remote worker to v0.9 for validated model selection.')
             for i,(agent,option) in enumerate(zip(agents,options)):
-                if self.config['mode']=='local' or (self.config['profile']=='split' and i!=1):self.monitor.validate_selection(agent,option)
+                if self.config['mode']=='local' or (self.config['profile']=='split' and not self.automatic() and i!=1):self.monitor.validate_selection(agent,option)
             for i,agent in enumerate(args.get('agents',[])):
                 if agent.startswith('api:'):
-                    if self.config['mode']=='live' and self.config['profile']=='split' and i!=1: raise ValueError('Split-mode local planning/review currently requires Codex or Claude CLI')
+                    if self.config['mode']=='live' and self.config['profile']=='split' and not self.automatic() and i!=1: raise ValueError('Split-mode local planning/review currently requires Codex or Claude CLI')
                     if self.config['mode']=='local': self.providers.get(agent[4:])
-        if op not in ('create','control','artifact'): raise ValueError('Unknown desktop operation')
+        if op not in ('create','control','artifact','artifact_versions'): raise ValueError('Unknown desktop operation')
         return self.call(op,args)
 
 def main():

@@ -351,3 +351,48 @@ lease or unconfirmed process termination is not safe to retry until reconciled.
 Remote retry requires the matching updated backend; old workers return a clear
 upgrade error. The desktop update also merges same-provider, same-account quota
 rings across hosts, preferring the newest observation, never summing percentages.
+
+### Automatic Windows routing and task recovery (0.11.2)
+
+Windows SSH environments now default to **Automatic host routing**. Every role of
+new tasks runs on Windows, including planning and review. The underlying legacy
+split transport can remain selected; it no longer assigns new automatic tasks to
+Mac. Existing tasks retain their recorded host assignments. Fresh installations
+without a configured remote still work on one computer.
+
+If Windows is disconnected, a new **portable** task automatically uses the Mac:
+choose its existing local project directory in the task form, or set the default
+local directory in Settings. Home/drive roots, absent directories, missing CLI
+agents, and remote-only API credentials cannot be used for fallback. Mark tasks
+**Windows only** when they depend on Windows software or data. No repository,
+dataset or credential is downloaded automatically. A failed/uncertain remote
+submission is pinned to Windows and cannot replay on Mac; already-started remote
+tasks are never migrated. ACC retries the saved connection every 30 seconds while
+polling. Local fallback tasks remain visible and continue locally after reconnect,
+including after application restart; they are not automatically synchronized back
+to Windows. Their metadata is bounded by the separate 80 MB Store admission limit.
+
+Task details offer **Continue task**, **Retry blocked step**, **Restart all steps**,
+and **Delete to trash**. Restart repeats work from planning; retry retains successful
+prior steps. Trash is reversible from the Tasks toolbar. Unknown/live execution
+must stop or be reconciled before restart/deletion. Native CLI session resume is
+not implied. Events and artifacts remain intact.
+
+Artifacts default to the latest handoff per task, step and filename, with the task
+name, one-line summary and timestamp. Expand **Previous versions** to inspect older
+handoffs. This is a display cleanup, not permanent deletion.
+
+Update the Windows backend once before using these features (from **Mac Terminal**):
+
+```sh
+cd "/path/to/multi-agent-control-center"
+python3 scripts/deploy_windows.py win-server --interactive-worker
+```
+
+Then reconnect ACC. The application refuses automatic remote routing on an older
+backend rather than silently running planning/review on Mac. This release keeps
+the existing interactive-worker profile; it does not require a permissions change.
+
+Verification: routing/reconnect/idempotency, recovery and version grouping are
+covered by automated tests. The new automatic fallback flow has not yet been
+validated end-to-end on the user's two physical hosts.

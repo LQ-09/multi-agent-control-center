@@ -10,7 +10,7 @@ globalThis.localStorage={getItem:key=>storage.get(key)??null,setItem:(key,value)
 globalThis.document={documentElement:{lang:'',style:{setProperty:(key,value)=>styles.set(key,value)}}};
 try{
  const outfile=join(temporary,'display.mjs');
- await build({stdin:{contents:"export * from './src/task-timeline';export * from './src/i18n';export * from './src/display';export * from './src/settings';export * from './src/agent-controls';export * from './src/floating-usage';export {renderToStaticMarkup as render} from 'react-dom/server';export {createElement as h} from 'react';",resolveDir:process.cwd(),loader:'tsx'},outfile,bundle:true,platform:'node',format:'esm',banner:{js:"import {createRequire} from 'node:module';const require=createRequire(import.meta.url);"}});
+ await build({stdin:{contents:"export * from './src/task-actions';export * from './src/task-timeline';export * from './src/i18n';export * from './src/display';export * from './src/settings';export * from './src/agent-controls';export * from './src/floating-usage';export {renderToStaticMarkup as render} from 'react-dom/server';export {createElement as h} from 'react';",resolveDir:process.cwd(),loader:'tsx'},outfile,bundle:true,platform:'node',format:'esm',banner:{js:"import {createRequire} from 'node:module';const require=createRequire(import.meta.url);"}});
  const ui=await import(pathToFileURL(outfile));
  assert.equal(ui.handoffSummary('<acc_result>{"status":"blocked","summary":"Missing access. More text.","details":"raw"}</acc_result>'),'Missing access.');
  assert.equal(ui.handoffSummary('Legacy first line\nRaw second line'),'Legacy first line');
@@ -25,6 +25,15 @@ try{
  assert.equal(ui.tr('Settings'),'Settings');assert.equal(document.documentElement.lang,'en');
  assert.equal(storage.get('acc-language'),'en');assert.equal(storage.get('acc-font-size'),'130');
  const reload=await import(pathToFileURL(outfile).href+'?reload');assert.equal(reload.tr('Settings'),'Settings');assert.equal(styles.get('--font-scale'),'1.3');
+ const task={id:'t',title:'Test',status:'Paused',revision:1};
+ const controls=(task,steps=[])=>ui.render(ui.h(ui.TaskActions,{task,steps,busy:false,control:()=>{}}));
+ assert.match(controls(task),/Continue task/);assert.match(controls({...task,status:'Cancelled'}),/Restart all steps/);
+ assert.match(controls(task,[{status:'Blocked',error:'permission denied'}]),/Retry blocked step/);
+ assert.match(controls({...task,archived:1}),/Restore task/);assert.doesNotMatch(controls({...task,archived:1}),/Restart/);
+ const unknown=controls({...task,status:'Blocked'},[{status:'Blocked',lease:0,error:'unknown'}]);
+ assert.match(unknown,/disabled=""/);assert.match(unknown,/reconciled/);
+ const handoffs=ui.render(ui.h(ui.ArtifactList,{items:[{id:'a',task_id:'t',task_title:'Project A',name:'plan-handoff.md',summary:'Plan ready.',versions:3,sha256:'abcd',created:'2026-10-31T00:00:00Z'}],open:()=>{}}));
+ assert.match(handoffs,/Project A/);assert.match(handoffs,/Plan ready/);assert.match(handoffs,/Previous versions/);
  const config={mode:'local',profile:'single',remote_os:'posix',ssh_alias:'test-host',windows_python:'python',windows_service:'/tmp/service.py',windows_root:'/tmp/data',mac_workspace:'/Users/test/Running'};
  const props={config,environments:[],busy:false,connected:true,action:async()=>{}};
  let rendered=ui.render(ui.h(ui.EnvironmentSettings,props));assert.match(rendered,/Execution environment/);

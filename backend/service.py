@@ -20,7 +20,7 @@ def main():
         try:
             if len(line)>1_000_000: raise ValueError('Request too large')
             req=json.loads(line); op=req.get('op')
-            if op=='hello': result={'host':platform.node(),'os':platform.system(),'agents':{a:version(a) for a in ('codex','claude')},'root':str(store.root),'protocol':2,'profile':args.profile,'agent_controls':1,'planned_acceptance':1,'model_catalog':1,'workspace_write':1,'result_contract':1,'retry_steps':1}
+            if op=='hello': result={'host':platform.node(),'os':platform.system(),'agents':{a:version(a) for a in ('codex','claude')},'root':str(store.root),'protocol':2,'profile':args.profile,'agent_controls':1,'planned_acceptance':1,'model_catalog':1,'workspace_write':1,'result_contract':1,'retry_steps':1,'task_management':1,'windows_first':1}
             elif op=='agent_status':result=monitor.snapshot(bool(req.get('args',{}).get('refresh')))
             elif op=='tick' and platform.system()=='Windows' and interactive_enabled(store.root):
                 if active: raise ValueError('Stop existing SSH-owned tasks before switching to the interactive worker')
@@ -47,7 +47,7 @@ def main():
                 saved=store.agent_defaults();data=req.get('args',{});agents=data.get('agents',saved['roles'])
                 options=data.get('agent_options') or [saved.get(a,{}) for a in agents]
                 for i,(agent,option) in enumerate(zip(agents,options)):
-                    if args.profile=='single' or i==1:monitor.validate_selection(agent,option)
+                    if args.profile=='single' or data.get('routing')=='windows-first' or i==1:monitor.validate_selection(agent,option)
                 for agent in req.get('args',{}).get('agents',[]):
                     if agent.startswith('api:'): providers.get(agent[4:])
                 result=store.dispatch(req)
