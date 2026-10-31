@@ -364,7 +364,7 @@
   "Models are queried from the selected CLI host, cached for 5 minutes. Refresh does not query the ChatGPT app model menu.": "列表来自所选主机的 CLI，缓存 5 分钟；不是当前 ChatGPT 软件里的模型菜单。",
   "Awaiting model discovery": "等待模型查询",
   "Cached model list — last refresh failed; explicit selections require fresh validation.": "显示上次成功的缓存；本次刷新失败，执行前仍需通过最新校验。",
-  "PREVIEW 0.11 ": "预览版 0.11 ",
+  "PREVIEW 0.11.1 ": "预览版 0.11.1 ",
   "Creating and running authorizes the selected agents. This preview uses a read-only workflow.": "点击创建并运行，即授权所选智能体执行。当前预览版为只读工作流。",
   "After creating": "创建后",
   "Run automatically": "自动运行",
@@ -383,5 +383,9 @@
   "Creating and running authorizes Codex Execute to edit the selected project. Planning and review remain read-only.": "创建并运行即授权 Codex 执行阶段修改所选项目。规划与审查阶段保持只读。",
   "Only the selected project directory is writable; CLI subprocess network access is allowed for Git. Root and home directories are not allowed.": "仅所选项目目录可写；允许 CLI 子进程联网以使用 Git。不允许使用根目录或用户主目录。",
   "Output received — outcome unverified": "已收到输出，结果未核实",
-  "Legacy outputs have no verified outcome. Previous version status does not mean acceptance.": "历史输出未核实执行结果；旧版本记录的状态不代表任务已验收。"
+  "Legacy outputs have no verified outcome. Previous version status does not mean acceptance.": "历史输出未核实执行结果；旧版本记录的状态不代表任务已验收。",
+  "↻ Retry blocked step": "↻ 重试受阻步骤",
+  "Previous execution outcome is unknown; reconcile the process before retrying.": "上次执行结果未知，请先核实进程已停止及执行结果，再重试。",
+  "task.retry": "任务重试",
+  "step.retry_requested": "已请求重试"
 }

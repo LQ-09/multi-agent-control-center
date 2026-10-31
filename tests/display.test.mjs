@@ -43,6 +43,15 @@ try{
  rendered=ui.render(ui.h(ui.AccountTile,{agent:'codex',account:{status:'ok',meters:[{label:'Weekly',remaining_percent:10,resets_at:null}],models:[]},now:0}));assert.match(rendered,/float-agent-name/);assert.match(rendered,/10/);assert.doesNotMatch(rendered,/overflow:auto/);assert.doesNotMatch(rendered,/Weekly|float-reset|float-window/);
  assert.deepEqual(ui.visibleUsageHosts({hosts:{remote:{agents:{},error:'Update the remote worker to v0.6 for account and model controls.'},local:{agents:{}}}}).map(([host])=>host),['local']);
  assert.equal(ui.visibleUsageHosts({hosts:{remote:{agents:{},error:'Remote environment is not connected.'}}}).length,1);
+ const account=(id,percent,date='2026-10-30T14:00:00Z')=>({account:id,status:'ok',checked_at:date,models:[],meters:[{label:'weekly',remaining_percent:percent,resets_at:null}]});
+ const shared={hosts:{local:{agents:{codex:account('c',66),claude:account('a',97)}},remote:{agents:{codex:account('c',64,'2026-10-30T14:01:00Z'),claude:account('a',97)}}}};
+ let merged=ui.mergedUsageAccounts(shared);assert.equal(merged.length,2);assert.equal(merged.find(x=>x.agent==='codex').account.meters[0].remaining_percent,64);
+ assert.equal(ui.mergedUsageAccounts({hosts:{local:{agents:{codex:account('one',60)}},remote:{agents:{codex:account('two',20)}}}}).length,2);
+ assert.equal(ui.mergedUsageAccounts({hosts:{local:{agents:{codex:account(undefined,60)}},remote:{agents:{codex:account(undefined,60)}}}}).length,2);
+ assert.equal(ui.mergedUsageAccounts({hosts:{local:{agents:{codex:account('same',60),claude:account('same',20)}}}}).length,2);
+ const failed={...account('c',0,'2026-10-30T14:02:00Z'),status:'unavailable',meters:[]};
+ assert.equal(ui.mergedUsageAccounts({hosts:{local:shared.hosts.local,remote:{agents:{codex:failed}}}}).find(x=>x.agent==='codex').account.meters.length,0);
+ rendered=merged.map(x=>ui.render(ui.h(ui.AccountTile,{agent:x.agent,account:x.account,now:0}))).join('');assert.equal((rendered.match(/class="float-account"/g)||[]).length,2);
  const original=[{label:'5 hours',remaining_percent:50},{label:'Weekly',remaining_percent:10}];
  assert.equal(ui.orderedMeters(original)[0].label,'Weekly');assert.equal(original[0].label,'5 hours');
  ui.setLanguage('en');assert.equal(ui.resetCountdown('2030-01-02T02:30:00Z',Date.parse('2030-01-01T00:00:00Z')),'Resets in 1d 2h 30m');

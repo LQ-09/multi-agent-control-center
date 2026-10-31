@@ -111,10 +111,11 @@ class Bridge:
             try: run(s,call,workspace,demo,self.providers)
             finally: self.active=False
         threading.Thread(target=work,daemon=True).start()
-    def idle(self):
+    def idle(self, allow_finished_blocks=False):
         if self.active: raise ValueError('Stop active work before changing environments or providers.')
         snap=self.call('snapshot') if self.config['mode']!='live' or self.connected else self.last_live
-        if snap and any(t['status'] in ('Running','Planning','Queued','Blocked') for t in snap['tasks']):
+        unsafe = snap and (any(t['status'] in ('Running','Planning','Queued') or (t['status']=='Blocked' and not allow_finished_blocks) for t in snap['tasks']) or any(s.get('lease') is not None or any(x in (s.get('error') or '').lower() for x in ('unknown','unconfirmed')) for s in snap.get('steps',[])))
+        if unsafe:
             raise ValueError('Pause/cancel or reconcile pending tasks before changing environments or providers.')
     @staticmethod
     def validate_config(config):
@@ -134,7 +135,7 @@ class Bridge:
         if op=='prepare_update':
             if self.config['mode']=='live' and (not self.connected or self.needs_connect):
                 raise ValueError('Reconnect the remote environment before updating; task state is unknown.')
-            self.idle()
+            self.idle(allow_finished_blocks=True)
             self.update_pending=True
             return {'ready':True}
         if op=='abort_update':
@@ -225,6 +226,8 @@ class Bridge:
             if self.config['mode']=='local': return {'local':scan(self.call,'local')}
             if self.config['profile']=='single': return {'remote':self.call('scan')}
             return {'mac':scan(self.call,'mac'),'windows':self.call('scan')}
+        if op=='control' and args.get('action')=='retry' and self.config['mode']=='live' and not (self.info or {}).get('retry_steps'):
+            raise ValueError('Update the Windows backend to enable retry without creating a new task.')
         if op=='create' and self.config['mode']=='live' and not args.get('acceptance','').strip() and not (self.info or {}).get('planned_acceptance'):
             raise ValueError('Update the remote worker to v0.7 to generate acceptance criteria during planning.')
         if op=='create' and self.config['mode']=='live' and args.get('agent_options') and not (self.info or {}).get('agent_controls'):

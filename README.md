@@ -309,3 +309,45 @@ Create and run is the default; choose Save draft only to defer. The timeline sho
 To edit a project, explicitly select Workspace write and Codex as Executor. Only the existing selected project directory is writable through Codex's sandbox; CLI network access is enabled for Git. Planner/reviewer remain read-only. Drive roots/home directories are rejected. Remote workers must be redeployed before using this mode. This does not repair Windows runner installation issues; a runner timeout still blocks execution.
 
 Quota window uses native Tauri transparency/no shadow and compact vertical content; reset times are click-to-expand, host labels hidden, +/- scale is saved. Native approach references https://github.com/tauri-apps/window-vibrancy ; no third-party source was copied. CodexBar (https://github.com/steipete/CodexBar, MIT) was evaluated as a future usage integration, not bundled. macOS transparency uses Tauri's macos-private-api feature; no App Store compatibility claim.
+
+## Windows: SSH connects but Codex commands time out
+
+If the CLI works from the Windows desktop but ACC reports `runner pipe-in` after
+15 seconds, opt into the interactive Windows executor. Stop running/queued tasks
+first and keep the Windows user logged in. From the Mac source checkout:
+
+```sh
+python3 scripts/deploy_windows.py win-server --interactive-worker
+```
+
+This copies application Python sources and registers `ACC-Interactive-Worker`
+on Windows, using the current Windows user's interactive login at limited run
+level. It does not store a password, enable auto-login, disable the Codex sandbox,
+or open a network port. A diagnostic worker console may remain visible.
+Then click **Settings → Reconnect** in ACC and run a read-only hostname task.
+No Mac application reinstall is needed for this backend-only repair.
+
+The helper uses the deployment script's existing default Windows home directory
+`AgentControlCenter/state`. For a custom authority path, copy the backend and run
+`python backend/install_interactive_worker.py --root "D:/your/authority"` in
+Windows; add `--profile single` for a remote single-host profile. Do not point it
+at a different database from the ACC connection setting.
+
+If the desktop user logs out or the worker stops, ACC will show an explicit worker
+error; it will not fall back to SSH execution. Reconnect after restoring the worker.
+Controller disconnect stops active commands after the bounded heartbeat timeout.
+Do not blindly rerun a task whose previous execution outcome is unknown.
+
+This repair has automated contract tests. Installation and an ACC end-to-end
+Windows task must still pass on the target host before it can be called verified.
+
+### Retry a blocked step (0.11.1)
+
+Task details now include **Retry blocked step / 重试受阻步骤** for a blocked or
+failed task, including one paused after failure. Successful prior steps and old
+artifacts/events are retained; only the failed step receives a new attempt.
+Stale revisions and late results from a previous attempt are rejected. An expired
+lease or unconfirmed process termination is not safe to retry until reconciled.
+Remote retry requires the matching updated backend; old workers return a clear
+upgrade error. The desktop update also merges same-provider, same-account quota
+rings across hosts, preferring the newest observation, never summing percentages.

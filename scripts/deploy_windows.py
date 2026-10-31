@@ -16,4 +16,8 @@ with tempfile.TemporaryDirectory() as tmp:
     stage=Path(tmp)/'backend';stage.mkdir()
     for src in (Path(__file__).resolve().parents[1]/'backend').glob('*.py'):shutil.copy2(src,stage/src.name)
     subprocess.run(['scp',*opts,'-r',str(stage),alias+':AgentControlCenter/'],check=True)
+if '--interactive-worker' in sys.argv[2:]:
+    setup="$target = Join-Path $env:USERPROFILE 'AgentControlCenter'; & python (Join-Path $target 'backend/install_interactive_worker.py') --root (Join-Path $target 'state'); exit $LASTEXITCODE"
+    encoded=base64.b64encode(setup.encode('utf-16-le')).decode()
+    subprocess.run(['ssh',*opts,alias,'powershell.exe -NoProfile -NonInteractive -EncodedCommand '+encoded],check=True)
 print('Backend copied. Set the Windows service.py and storage paths in native app Settings; select Live and Test connection.')

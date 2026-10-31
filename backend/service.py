@@ -9,6 +9,7 @@ from agents import run, version, cleanup
 from history import scan
 from providers import Providers
 from agent_monitor import AgentMonitor
+from interactive_worker import enabled as interactive_enabled, tick as interactive_tick
 
 def main():
     parser=argparse.ArgumentParser(); parser.add_argument('--root',required=True); parser.add_argument('--profile',choices=['single','split'],default='split'); args=parser.parse_args()
@@ -19,8 +20,11 @@ def main():
         try:
             if len(line)>1_000_000: raise ValueError('Request too large')
             req=json.loads(line); op=req.get('op')
-            if op=='hello': result={'host':platform.node(),'os':platform.system(),'agents':{a:version(a) for a in ('codex','claude')},'root':str(store.root),'protocol':2,'profile':args.profile,'agent_controls':1,'planned_acceptance':1,'model_catalog':1,'workspace_write':1,'result_contract':1}
+            if op=='hello': result={'host':platform.node(),'os':platform.system(),'agents':{a:version(a) for a in ('codex','claude')},'root':str(store.root),'protocol':2,'profile':args.profile,'agent_controls':1,'planned_acceptance':1,'model_catalog':1,'workspace_write':1,'result_contract':1,'retry_steps':1}
             elif op=='agent_status':result=monitor.snapshot(bool(req.get('args',{}).get('refresh')))
+            elif op=='tick' and platform.system()=='Windows' and interactive_enabled(store.root):
+                if active: raise ValueError('Stop existing SSH-owned tasks before switching to the interactive worker')
+                result=interactive_tick(store,args.profile)
             elif op=='tick':
                 s=call('claim',{'host':'worker' if args.profile=='single' else 'windows'}) if len(active)<1 else None
                 if s:

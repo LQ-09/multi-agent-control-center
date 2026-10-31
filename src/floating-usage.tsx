@@ -31,6 +31,18 @@ export function AccountTile({agent,account,now}:{agent:string;account:Account;no
 export function visibleUsageHosts(status:AgentStatus){
  return Object.entries(status.hosts).filter(([,data])=>data.error!=='Update the remote worker to v0.6 for account and model controls.');
 }
+export function mergedUsageAccounts(status:AgentStatus){
+ const rows=new Map<string,{key:string;agent:string;account:Account}>();
+ const checked=(a:Account)=>Number.isFinite(Date.parse(a.checked_at||''))?Date.parse(a.checked_at!):0;
+ for(const [host,data] of visibleUsageHosts(status)){
+  for(const [agent,account] of visibleAccounts(data.agents)){
+   const key=account.account?agent+':account:'+account.account:agent+':host:'+host;
+   const previous=rows.get(key);
+   if(!previous||checked(account)>checked(previous.account))rows.set(key,{key,agent,account});
+  }
+ }
+ return [...rows.values()];
+}
 export function usageZoom(value:number){return Number.isFinite(value)?Math.min(1.5,Math.max(.65,value)):1}
 export function FloatingUsage(){
  useDisplayPreferences();
@@ -50,10 +62,10 @@ export function FloatingUsage(){
   const observer=new ResizeObserver(resize);observer.observe(element);resize();
   return()=>{active=false;observer.disconnect()};
  },[zoom]);
- const hosts=visibleUsageHosts(status);
+ const hosts=visibleUsageHosts(status),accounts=mergedUsageAccounts(status);
  const control=(action:string)=>void usageWindow(action).catch(e=>setError(String(e)));
  return <div ref={panel} className="floating-usage"><div className="float-toolbar"><span className="float-drag" onMouseDown={e=>{if(e.button===0)control('drag')}} title={tr('Drag to move')}>⠿</span><button onClick={()=>changeZoom(-.1)} disabled={zoom<=.65} title="−">−</button><button onClick={()=>changeZoom(.1)} disabled={zoom>=1.5} title="+">+</button><button onClick={refresh} title={tr('Refresh usage')}>↻</button><button onClick={()=>control('main')} title={tr('Open main window')}>↗</button><button onClick={()=>control('hide')} title={tr('Hide floating usage')}>×</button></div>
- <div className="float-content">{hosts.map(([host,data])=><section key={host}>{data.error?<p>{tr(data.error)}</p>:<div className="float-accounts">{visibleAccounts(data.agents).map(([agent,account])=><AccountTile key={agent} agent={agent} account={account} now={now}/>)}{!visibleAccounts(data.agents).length&&<p className="float-empty">{tr(data.refreshing?'Reading usage…':'No connected agents')}</p>}</div>}</section>)}
+ <div className="float-content"><div className="float-accounts">{accounts.map(({key,agent,account})=><AccountTile key={key} agent={agent} account={account} now={now}/>)}</div>{hosts.filter(([,data])=>data.error).map(([host,data])=><p key={host}>{tr(data.error!)}</p>)}{hosts.length>0&&!accounts.length&&!hosts.some(([,data])=>data.error)&&<p className="float-empty">{tr(hosts.some(([,data])=>data.refreshing)?'Reading usage…':'No connected agents')}</p>}
  {!hosts.length&&<p>{tr(error?'Usage query failed; no remaining quota is assumed':'Usage is available for real execution environments')}</p>}{windowError&&<p role="alert">{windowError}</p>}
  </div></div>
 }

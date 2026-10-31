@@ -177,6 +177,16 @@ class Store:
                 if t['status'] not in ('Draft','Paused'): raise ValueError('Only draft or paused tasks can be started.')
                 if active: raise ValueError('Previous process is still stopping.')
                 status='Queued'
+            elif action=='retry':
+                if t['status'] not in ('Blocked','Failed','Paused'): raise ValueError('Only blocked, failed or paused tasks can be retried.')
+                if active: raise ValueError('Previous process is still stopping.')
+                step=self.db.execute("SELECT * FROM steps WHERE task_id=? AND status!='Succeeded' ORDER BY position LIMIT 1",(ident,)).fetchone()
+                if not step or step['status'] not in ('Blocked','Failed'): raise ValueError('No failed step to retry.')
+                if step['lease'] is not None or any(x in (step['error'] or '').lower() for x in ('unknown','unconfirmed')):
+                    raise ValueError('Previous execution outcome is unknown; reconcile the process before retrying.')
+                self.event(ident,'step.retry_requested','User requested a new attempt; previous output remains in history and artifacts.',dict(step),'Queued')
+                self.db.execute("UPDATE steps SET status='Pending',attempt=NULL,session=NULL,lease=NULL,error=NULL,output='' WHERE id=?",(step['id'],))
+                status='Queued'
             elif action in ('pause','cancel'):
                 if t['status'] in ('Completed','Cancelled'): raise ValueError('Task is terminal.')
                 status='Blocked' if active else ('Paused' if action=='pause' else 'Cancelled')

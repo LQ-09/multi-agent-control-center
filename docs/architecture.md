@@ -112,3 +112,45 @@ New tasks default to Create and run; save-only remains available. Explicit per-t
 Every real agent receives the same platform-injected result format: one final `<acc_result>` JSON object with status (`succeeded`, `blocked`, `failed`), a one-line summary of at most160 characters, and full details. Missing/malformed results fail closed. Blocked/failed outcomes stop dependent steps; successful review still requires user acceptance. CLI exit0 alone is insufficient. Timeline uses one bounded summary per step; raw output remains available under Debug logs. Older stored records are not reclassified automatically.
 
 Windows runner pipe-in timeouts remain an independently unverified runtime issue. Workspace permissions do not establish runner health or clone success. Desktop updates do not update remote workers.
+
+## Windows interactive executor repair
+
+An opt-in `interactive-executor.json` marker in the authority root makes SSH `tick`
+update a controller heartbeat instead of spawning agents. A logged-in Windows
+worker claims Windows steps from the same local SQLite authority using existing
+`BEGIN IMMEDIATE` transactions and attempt leases. No database is synchronized
+across hosts and no new socket/listener or credentials are introduced. A Windows
+byte-range lock prevents two interactive worker processes for one authority.
+
+The worker refuses Session 0. Installer registers an interactive-user, limited-run-level
+scheduled task (at logon, without stored password or auto-login). It preserves an
+existing task and refuses to replace one with different paths. The installer writes
+the opt-in marker before launch: a failed launch must not silently resume SSH execution.
+Worker liveness is refreshed every 3 seconds; controller liveness expires after 15
+seconds. Missing/mismatched worker makes SSH tick fail visibly. Controller loss
+stops new claims and causes active CLI termination on the next pulse (normally within
+20 seconds); expired execution leases retain existing no-replay behavior. Process
+crashes leave the marker in place, preventing a fallback to Session 0. Explicit
+human task acceptance remains required.
+
+Stop running tasks before installing. Start with no pending tasks, then reconnect
+and submit a read-only diagnostic before queuing research. A ready heartbeat proves
+worker availability, not a passing sandbox command. Single-host profiles require
+`--profile single` in the Windows installer; the Mac split setup uses the default.
+Session API keys supplied to the SSH process are not copied to the worker; API
+execution requires its configured environment key in the interactive process.
+The current workaround requires a logged-in Windows desktop; logged-out operation
+is not supported. Windows scheduling, CLI health, logout and reconnect still need
+real-host validation; unit and simulated IPC tests are not evidence of that.
+
+Target-host validation (2026-10-31): the ACC task executed `hostname` successfully
+(`Ling-Desktop`, exit 0) and `(Get-Process -Id $PID).SessionId` returned 1, exit 0.
+The former runner pipe-in timeout did not recur after interactive deployment.
+The WMI disk query failed with HRESULT 0x80041003; this is a separate sandbox
+permission restriction. No sandbox permission was expanded. Logout/restart and
+network-failure tests on the actual host remain outstanding.
+
+Explicit retry (0.11.1) preserves prior successful steps and immutable artifacts/events,
+clears only the failed step's live attempt, and rejects active/expired/unknown attempts.
+A paused failed task is also retryable. Updates may proceed with finished blocked
+steps, but not running, queued or unknown execution state.

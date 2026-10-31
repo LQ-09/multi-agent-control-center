@@ -174,7 +174,7 @@ def run(s, call, mac_workspace=None, demo=False, providers=None):
     except Exception as e:
         if p:
             try: stop_process(p)
-            except Exception: pass
+            except Exception: e=RuntimeError('Process termination unconfirmed; reconcile before retry. '+str(e))
         try: call('finish',{**common,'output':'','error':clean(e,2000)})
         except Exception: pass  # Authority loss: lease expiry blocks the task; never replay execution.
 
