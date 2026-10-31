@@ -396,3 +396,18 @@ the existing interactive-worker profile; it does not require a permissions chang
 Verification: routing/reconnect/idempotency, recovery and version grouping are
 covered by automated tests. The new automatic fallback flow has not yet been
 validated end-to-end on the user's two physical hosts.
+
+### Remember floating-window placement (0.11.3)
+
+The usage accessory starts at the primary screen's left edge on first launch.
+Dragging remains available. Hiding it, quitting ACC, or installing an update saves
+its monitor-relative position in the native application configuration directory.
+Next launch restores that position and clamps it into the monitor work area; a
+missing saved display falls back to the primary display. The window is positioned
+before its initial show, and its height still follows account content.
+This is a Mac desktop change; it does not change or redeploy the Windows backend.
+
+The [workspace/context audit and proposal](docs/workspace-context-proposal.md)
+distinguishes current path fields and text handoffs from the proposed project
+registry, isolated worktrees, automatic rule injection, shared skills and MCP.
+That proposal is not a shipped workspace manager.

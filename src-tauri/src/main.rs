@@ -3,6 +3,7 @@ use std::{io::{BufRead, BufReader, Write}, process::{Child, ChildStdin, ChildStd
 use tauri::{Manager, State};
 use serde_json::Value;
 mod updates;
+mod usage_position;
 struct Bridge { child: Child, input: Option<ChildStdin>, output: BufReader<ChildStdout> }
 impl Drop for Bridge {
     fn drop(&mut self) {
@@ -87,25 +88,35 @@ fn fit_usage(window: tauri::WebviewWindow, height: f64, width: Option<f64>, zoom
     if !width.is_finite() || !(80.0..=400.0).contains(&width) || !zoom.is_finite() || !(0.65..=1.5).contains(&zoom) {
         return Err("Invalid usage window scale".into());
     }
-    let monitor = window.current_monitor().map_err(|e|e.to_string())?;
+    let state = window.state::<usage_position::PositionState>();
+    let mut initialized = state.0.lock().map_err(|_| "Position lock poisoned")?;
+    let saved = if !*initialized { usage_position::read(window.app_handle()) } else { None };
+    let saved_monitor = saved.as_ref().and_then(|v| v.get("monitor")).and_then(Value::as_str);
+    let matched = if !*initialized { window.available_monitors().map_err(|e|e.to_string())?.into_iter()
+        .find(|m| saved_monitor.is_some() && m.name().map(String::as_str) == saved_monitor) } else { None };
+    let restore = matched.is_some();
+    let monitor = if !*initialized { matched.or(window.primary_monitor().map_err(|e|e.to_string())?) }
+        else { window.current_monitor().map_err(|e|e.to_string())?.or(window.primary_monitor().map_err(|e|e.to_string())?) };
     let available = monitor.as_ref().map(|m| m.work_area().size.height as f64 / m.scale_factor() - 16.0).unwrap_or(800.0);
     let scale = (available / height).min(zoom);
     window.set_size(tauri::LogicalSize::new(width * scale, height * scale)).map_err(|e|e.to_string())?;
     if let Some(m) = monitor {
         let area = m.work_area();
         let size = window.outer_size().map_err(|e|e.to_string())?;
-        let pos = window.outer_position().map_err(|e|e.to_string())?;
-        let x = pos.x.clamp(area.position.x, (area.position.x + area.size.width as i32 - size.width as i32).max(area.position.x));
-        let y = pos.y.clamp(area.position.y, (area.position.y + area.size.height as i32 - size.height as i32).max(area.position.y));
+        let current = window.outer_position().map_err(|e|e.to_string())?;
+        let offset = if *initialized { Some(((current.x as f64-area.position.x as f64)/m.scale_factor(), (current.y as f64-area.position.y as f64)/m.scale_factor())) }
+            else if restore { saved.as_ref().and_then(|v| Some((v.get("x")?.as_f64()?,v.get("y")?.as_f64()?))) } else { None };
+        let (x,y) = usage_position::coordinates((area.position.x,area.position.y),(area.size.width,area.size.height),(size.width,size.height),m.scale_factor(),offset);
         window.set_position(tauri::PhysicalPosition::new(x,y)).map_err(|e|e.to_string())?;
     }
+    if !*initialized { *initialized = true; window.show().map_err(|e|e.to_string())?; }
     Ok(scale)
 }
 #[tauri::command]
 fn usage_window(app: tauri::AppHandle, window: tauri::WebviewWindow, action: String) -> Result<(), String> {
     match action.as_str() {
         "drag" if window.label() == "usage" => window.start_dragging().map_err(|e| e.to_string()),
-        "hide" => app.get_webview_window("usage").ok_or("Usage window unavailable")?.hide().map_err(|e| e.to_string()),
+        "hide" => { usage_position::save(&app)?; app.get_webview_window("usage").ok_or("Usage window unavailable")?.hide().map_err(|e| e.to_string()) },
         "show" | "main" => {
             let target = if action == "show" { "usage" } else { "main" };
             let target = app.get_webview_window(target).ok_or("Window unavailable")?;
@@ -117,9 +128,10 @@ fn usage_window(app: tauri::AppHandle, window: tauri::WebviewWindow, action: Str
     }
 }
 fn main() {
-    tauri::Builder::default().plugin(tauri_plugin_updater::Builder::new().build()).manage(updates::Updates::default()).manage(Backend(Arc::new(Mutex::new(None)))).invoke_handler(tauri::generate_handler![rpc, usage_window, fit_usage, updates::update_status, updates::app_update])
+    tauri::Builder::default().plugin(tauri_plugin_updater::Builder::new().build()).manage(usage_position::PositionState::default()).manage(updates::Updates::default()).manage(Backend(Arc::new(Mutex::new(None)))).invoke_handler(tauri::generate_handler![rpc, usage_window, fit_usage, updates::update_status, updates::app_update])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "usage" { if let Err(e) = usage_position::save(window.app_handle()) { eprintln!("Usage position: {e}"); } }
                 api.prevent_close();
                 let _ = window.hide(); // Closing the dashboard leaves the independent widget alive.
             }
@@ -131,6 +143,7 @@ fn main() {
                 if let Some(main) = app.get_webview_window("main") { let _ = main.show(); let _ = main.set_focus(); }
             }
             if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+                if let Err(e) = usage_position::save(app) { eprintln!("Usage position: {e}"); }
                 if let Ok(mut bridge) = app.state::<Backend>().0.lock() { *bridge = None; }
             }
         });

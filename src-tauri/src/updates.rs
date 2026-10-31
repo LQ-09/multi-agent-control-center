@@ -33,6 +33,7 @@ pub async fn app_update(window: tauri::WebviewWindow, app: tauri::AppHandle, sta
             status(&state,json!({"phase":"Downloading signed update…","received":received,"total":total}));
         },||{}).await.map_err(|e|e.to_string())?;
         status(&state,json!({"phase":"Installing verified update…"}));
+        crate::usage_position::save(&app)?;
         update.install(bytes).map_err(|e|e.to_string())?;
         // Explicit cleanup: restart does not guarantee normal exit callbacks.
         let shared=app.state::<crate::Backend>().0.clone();

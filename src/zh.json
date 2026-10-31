@@ -364,7 +364,7 @@
   "Models are queried from the selected CLI host, cached for 5 minutes. Refresh does not query the ChatGPT app model menu.": "列表来自所选主机的 CLI，缓存 5 分钟；不是当前 ChatGPT 软件里的模型菜单。",
   "Awaiting model discovery": "等待模型查询",
   "Cached model list — last refresh failed; explicit selections require fresh validation.": "显示上次成功的缓存；本次刷新失败，执行前仍需通过最新校验。",
-  "PREVIEW 0.11.2 ": "预览版 0.11.2 ",
+  "PREVIEW 0.11.3 ": "预览版 0.11.3 ",
   "Creating and running authorizes the selected agents. This preview uses a read-only workflow.": "点击创建并运行，即授权所选智能体执行。当前预览版为只读工作流。",
   "After creating": "创建后",
   "Run automatically": "自动运行",
