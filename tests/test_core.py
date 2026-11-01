@@ -18,14 +18,13 @@ class CoreTests(unittest.TestCase):
         return self.store.create({'key':'one','title':'Test mission','prompt':'Inspect and summarize','workspace':'C:\\project','acceptance':'Evidence is explicit','agents':['codex','codex','claude']})['id']
     def control(self,id,action): return self.store.control(id,action,self.store.get_task(id)['revision'])
     def call(self,op,args=None): return self.store.dispatch({'op':op,'args':args or {}})
-    def test_end_to_end_requires_acceptance(self):
+    def test_end_to_end_reviewer_completes_task(self):
         id=self.create();self.control(id,'run')
         for host in ('mac','windows','mac'):
             s=self.store.claim(host);self.assertIsNotNone(s)
             self.assertIsNone(self.store.claim(host))
-            self.store.finish(s['id'],s['attempt'],'Verified handoff text')
-        self.assertEqual(self.store.get_task(id)['status'],'Verifying')
-        self.control(id,'accept');self.assertEqual(self.store.get_task(id)['status'],'Completed')
+            self.store.finish(s['id'],s['attempt'],'<acc_result>{"status":"succeeded","summary":"Passed.","details":"Verified evidence."}</acc_result>')
+        self.assertEqual(self.store.get_task(id)['status'],'Completed')
         self.assertEqual(len(self.store.snapshot()['artifacts']),3)
     def test_dependency_and_windows_restriction(self):
         id=self.create();self.control(id,'run');self.assertIsNone(self.store.claim('windows'))

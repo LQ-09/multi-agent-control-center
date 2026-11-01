@@ -81,8 +81,8 @@ class EnvironmentTests(unittest.TestCase):
         ident=self.task();self.b.local.control(ident,'run',1)
         for role in ['Plan','Execute','Review']:
             step=self.b.local.claim('local');self.assertEqual(step['role'],role)
-            self.assertEqual(step['host'],'local');self.b.local.finish(step['id'],step['attempt'],'Evidence')
-        self.assertEqual(self.b.local.get_task(ident)['status'],'Verifying')
+            self.assertEqual(step['host'],'local');self.b.local.finish(step['id'],step['attempt'],'<acc_result>{"status":"succeeded","summary":"Passed.","details":"Evidence"}</acc_result>')
+        self.assertEqual(self.b.local.get_task(ident)['status'],'Completed')
         with self.assertRaises(ValueError):self.b.local.claim('windows')
     def test_saved_profile_and_authorities_remain_isolated(self):
         ident=self.task()
@@ -115,7 +115,7 @@ class EnvironmentTests(unittest.TestCase):
         store.control(ident,'cancel',store.get_task(ident)['revision']);finish.set();worker.join(5)
         self.assertFalse(worker.is_alive());self.assertEqual(store.get_task(ident)['status'],'Cancelled')
         self.assertEqual(store.snapshot()['artifacts'],[])
-    def test_three_api_roles_require_final_acceptance(self):
+    def test_three_api_roles_complete_on_review(self):
         store=self.b.local
         ident=store.create({'key':'api-flow','title':'API workflow','prompt':'Analyze supplied text','workspace':self.tmp.name,'acceptance':'Three handoffs','agents':['api:test']*3})['id']
         store.control(ident,'run',1)
@@ -124,7 +124,7 @@ class EnvironmentTests(unittest.TestCase):
         def call(op,args):return store.dispatch({'op':op,'args':args})
         for _ in range(3):run(store.claim('local'),call,providers=providers)
         self.assertEqual(providers.complete.call_count,3)
-        self.assertEqual(store.get_task(ident)['status'],'Verifying')
+        self.assertEqual(store.get_task(ident)['status'],'Completed')
         self.assertEqual(len(store.snapshot()['artifacts']),3)
     def test_posix_remote_service_handshake_without_public_listener(self):
         root=Path(__file__).resolve().parents[1]

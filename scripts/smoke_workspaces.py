@@ -46,13 +46,12 @@ print(json.dumps(dict(type='item.completed',item=dict(type='agent_message',text=
         deadline=time.monotonic()+25
         while time.monotonic()<deadline:
             snapshot=call('snapshot');state=snapshot['tasks'][0]
-            if state['status'] in ('Verifying','Failed','Blocked'):break
+            if state['status'] in ('Completed','Failed','Blocked'):break
             time.sleep(.1)
-        assert state['status']=='Verifying',snapshot['steps']
+        assert state['status']=='Completed',snapshot['steps']
         context=call('project_context',dict(id=task['id']))
         assert (repo/'source.txt').read_text()=='original'
         assert (Path(context['workspace'])/'source.txt').read_text()=='fake CLI change'
-        call('control',dict(id=task['id'],action='accept',revision=state['revision']))
         print('PASS: frozen RPC -> registered project -> isolated Git worktree -> shared context -> three fake CLI roles -> acceptance; Python absent from PATH.')
     finally:
         proc.stdin.close()

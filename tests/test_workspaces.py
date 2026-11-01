@@ -79,8 +79,7 @@ class WorkspaceTests(unittest.TestCase):
             review['agent']=agent
             self.assertIn('Use outputs for reports.', prompt_for(review))
             self.assertIn('original', prompt_for(review))
-        self.assertEqual(self.finish(review)['status'], 'Verifying')
-        self.control(ident, 'accept')
+        self.assertEqual(self.finish(review)['status'], 'Completed')
         self.assertEqual((self.repo/'source.txt').read_text(), 'initial source')
 
     def test_external_changes_between_roles_block_execution(self):
@@ -156,9 +155,9 @@ class WorkspaceTests(unittest.TestCase):
 
     def test_acceptance_rechecks_source_and_idempotent_create_does_not_rebind(self):
         ident=self.create(); plan=self.claim(ident);self.finish(plan)
-        self.finish(self.store.claim('local')); review=self.store.claim('local');self.finish(review)
+        self.finish(self.store.claim('local')); review=self.store.claim('local')
         (Path(review['task']['workspace'])/'source.txt').write_text('changed after review')
-        with self.assertRaisesRegex(ValueError,'changed after review'):self.control(ident,'accept')
+        self.assertEqual(self.finish(review)['status'],'Failed')
         self.assertEqual(self.create(),ident)
 
     def test_real_subprocess_receives_actual_cwd_and_context(self):
@@ -181,7 +180,7 @@ print(json.dumps(dict(type='item.completed',item=dict(type='agent_message',text=
             for _ in range(3):
                 step=self.store.claim('local')
                 run(step,lambda op,args:self.store.dispatch(dict(op=op,args=args)))
-        self.assertEqual(self.store.get_task(ident)['status'],'Verifying')
+        self.assertEqual(self.store.get_task(ident)['status'],'Completed')
         self.assertEqual((self.repo/'source.txt').read_text(),'initial source')
         self.assertEqual((Path(step['task']['workspace'])/'source.txt').read_text(),'subprocess implementation')
 

@@ -434,5 +434,8 @@
   "Context is generated when the task starts.": "任务启动后生成上下文。",
   "Project": "项目",
   "Unmanaged directory (existing workflow)": "直接使用目录（旧流程）",
-  "A separate worktree will be created when the task starts. Uncommitted files in the original project are not included.": "启动时建立独立工作副本，不包含原目录里尚未提交的修改。"
+  "A separate worktree will be created when the task starts. Uncommitted files in the original project are not included.": "启动时建立独立工作副本，不包含原目录里尚未提交的修改。",
+  "Agent acceptance": "审核 Agent 验收",
+  "The reviewer completes accepted work or returns specific fixes to the executor. After three revision rounds, unresolved work needs your input.": "审核通过后自动完成；未通过则带修改意见返回执行 Agent。最多自动返工三轮，仍未解决时才需要你介入。",
+  "Send to reviewer": "交给审核 Agent 验收"
 }

@@ -50,13 +50,21 @@ def validate_execution_workspace(workspace):
 
 def result_contract(output, required=False):
     """Parse the final handoff, never infer success from a CLI exit code."""
-    matches=re.findall(r'<acc_result>(.*?)</acc_result>', output, re.S)
-    if not matches:
+    opening='<acc_result>'; closing='</acc_result>'
+    if opening not in output:
         if required or '<acc_result' in output: raise ValueError('Missing structured agent result; outcome is unverified.')
         return None
-    if len(matches)!=1: raise ValueError('Expected exactly one structured agent result.')
-    try: result=json.loads(matches[0])
+    if output.count(opening)!=1 or output.count(closing)>1:
+        raise ValueError('Expected exactly one structured agent result.')
+    payload=output.split(opening,1)[1]
+    missing_close=closing not in payload
+    if not missing_close:payload=payload.split(closing,1)[0]
+    try: result=json.loads(payload)
     except (ValueError,TypeError): raise ValueError('Invalid structured agent result JSON.')
+    # Preserve a complete negative outcome when only the wrapper was omitted.
+    # Never promote an incomplete success handoff or accept truncated JSON.
+    if missing_close and (not isinstance(result,dict) or result.get('status') not in ('blocked','failed')):
+        raise ValueError('Missing structured agent result closing tag; outcome is unverified.')
     if not isinstance(result,dict) or result.get('status') not in ('succeeded','blocked','failed'):
         raise ValueError('Invalid structured agent result status.')
     summary=result.get('summary'); details=result.get('details')
@@ -100,6 +108,7 @@ class Store:
         for column in ('model','effort'):
             if column not in columns:self.db.execute(f"ALTER TABLE steps ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
         task_columns={r[1] for r in self.db.execute('PRAGMA table_info(tasks)')}
+        if 'review_rounds' not in task_columns:self.db.execute("ALTER TABLE tasks ADD COLUMN review_rounds INTEGER NOT NULL DEFAULT 0")
         if 'execution_mode' not in task_columns:self.db.execute("ALTER TABLE tasks ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'read-only'")
         if 'archived' not in task_columns:self.db.execute("ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
         from workspaces import Workspaces
@@ -199,7 +208,7 @@ class Store:
                 return {'status':t['status'],'archived':action=='archive'}
             if action=='restart':
                 self.db.execute("UPDATE steps SET status='Pending',attempt=NULL,session=NULL,lease=NULL,error=NULL,output='' WHERE task_id=?",(ident,))
-                self.db.execute("UPDATE tasks SET workspace_id='' WHERE id=?",(ident,))
+                self.db.execute("UPDATE tasks SET workspace_id='',review_rounds=0 WHERE id=?",(ident,))
                 status='Queued'
             elif action=='run':
                 if t['status'] not in ('Draft','Paused'): raise ValueError('Only draft or paused tasks can be started.')
@@ -220,11 +229,10 @@ class Store:
                 if t['status'] in ('Completed','Cancelled'): raise ValueError('Task is terminal.')
                 status='Blocked' if active else ('Paused' if action=='pause' else 'Cancelled')
                 if active: self.db.execute('UPDATE steps SET error=? WHERE id=?',(action+' requested',active['id']))
-            elif action=='accept':
-                if t['status']!='Verifying': raise ValueError('All agent steps must finish before acceptance.')
-                self.workspaces.verify_acceptance(t)
-                status='Completed'
-                self.event(ident,'verification.accepted','User explicitly accepted the current read-only result against: '+t['acceptance'])
+            elif action=='review':
+                if t['status']!='Verifying' or active: raise ValueError('Only a legacy awaiting-acceptance task can be reviewed again.')
+                self.db.execute("UPDATE steps SET status='Pending',attempt=NULL,session=NULL,lease=NULL,error=NULL WHERE task_id=? AND role='Review'",(ident,))
+                status='Queued'
             else: raise ValueError('Unsupported action')
             self.db.execute('UPDATE tasks SET status=?,revision=revision+1 WHERE id=?',(status,ident))
             self.event(ident,'task.'+action,'Stop requested; awaiting worker acknowledgment.' if active else 'Task '+status.lower(),status=status)
@@ -246,6 +254,9 @@ class Store:
             self.event(s['task_id'],'step.started',f"{s['role']} started on {host}; {s['agent']} {self.get_task(s['task_id'])['execution_mode'] if s['role']=='Execute' else 'read-only'} profile.",s,status)
             t=self.get_task(s['task_id']); s['task']=t
             s['context']=[dict(r) for r in self.db.execute("SELECT role,output FROM steps WHERE task_id=? AND status='Succeeded' ORDER BY position",(s['task_id'],))]
+            if s['role']=='Execute':
+                feedback=self.db.execute("SELECT output FROM steps WHERE task_id=? AND role='Review'",(s['task_id'],)).fetchone()
+                if feedback and feedback['output']:s['context'].append({'role':'Review feedback — fix these issues','output':feedback['output']})
             try:
                 self.workspaces.prepare(s)
             except Exception as exc:
@@ -283,21 +294,24 @@ class Store:
             if s['error'] in ('pause requested','cancel requested') and not stopped: stopped=s['error'].split()[0]
             result=None; summary=''
             if not error and not stopped:
-                try: result=result_contract(output)
+                try: result=result_contract(output, required=s['role']=='Review')
                 except ValueError as exc: error=str(exc)
             if result:
                 summary=result['summary']
                 if result['status']!='succeeded': error=summary
+            valid_review=not error or bool(result and result['status']=='failed')
             try:
                 self.workspaces.checkpoint(s)
+                if s['role']=='Review' and result and result['status']=='succeeded':self.workspaces.verify_acceptance(self.get_task(s['task_id']))
             except Exception as exc:
-                error=clean(exc,2000); summary=error[:160]
+                error=clean(exc,2000); summary=error[:160]; valid_review=False
+            rework=s['role']=='Review' and valid_review and result and result['status']=='failed' and bool(result['details'].strip()) and not stopped
             if stopped:
                 status='Paused' if stopped=='pause' else 'Cancelled'; step_status='Pending' if stopped=='pause' else 'Cancelled'
             elif error:
                 status='Blocked' if result and result['status']=='blocked' else 'Failed'; step_status=status
             else:
-                step_status='Succeeded'; status='Verifying' if s['position']==2 else 'Queued'
+                step_status='Succeeded'; status='Completed' if s['position']==2 else 'Queued'
                 content=clean(output,24000)
                 if s['position']==0 and not self.get_task(s['task_id'])['acceptance']:
                     match=re.search(r'<acceptance_criteria>(.*?)</acceptance_criteria>', content, re.S)
@@ -311,6 +325,18 @@ class Store:
             if content.strip() and not stopped:
                 self.db.execute('INSERT INTO artifacts VALUES(?,?,?,?,?,?,?,?)',(uid(),s['task_id'],step_id,s['role'].lower()+'-handoff.md',digest(content),len(content.encode()),now(),content))
             self.db.execute('UPDATE steps SET status=?,output=?,error=?,lease=NULL WHERE id=?',(step_status,content,clean(error or '',2000),step_id))
+            if rework:
+                rounds=self.get_task(s['task_id'])['review_rounds']
+                if rounds<3:
+                    self.db.execute("UPDATE tasks SET review_rounds=review_rounds+1 WHERE id=?",(s['task_id'],))
+                    self.db.execute("UPDATE steps SET status='Pending',attempt=NULL,session=NULL,lease=NULL,error=NULL WHERE task_id=? AND role IN ('Execute','Review')",(s['task_id'],))
+                    status='Queued'
+                    self.event(s['task_id'],'review.rework',f'Review requested revision {rounds+1}/3: '+summary,s,status)
+                else:
+                    status='Blocked'
+                    self.event(s['task_id'],'review.limit','Three revision rounds exhausted; user input required.',s,status)
+            elif status=='Completed':
+                self.event(s['task_id'],'verification.accepted','Reviewer accepted the evidence against the task criteria.',s,status)
             self.db.execute('UPDATE tasks SET status=?,revision=revision+1 WHERE id=?',(status,s['task_id']))
             summary=summary or (error if error else 'Stopped at user request.' if stopped else next((line.strip() for line in output.splitlines() if line.strip()),'Result received.'))
             self.event(s['task_id'],'step.finished',clean(summary,160),s,status)
