@@ -26,6 +26,8 @@ Starting with **0.4.0**, open **Settings → App updates → Check for updates �
 
 If you currently have 0.3.x or older, quit it and install the 0.4.0 `.pkg` once over the existing app. **Do not uninstall or delete application data.** Later versions can use the in-app updater. Pause/cancel pending work first; updating is refused for active/queued/blocked tasks or an unknown remote state. A failed check/download can be retried. macOS may ask for permission to replace an app in Applications.
 
+From **0.12.2**, enable **Settings → App updates → Automatic updates** to check immediately and hourly, then install and restart when tasks are idle. This preference is off by default and persists across restarts. Active tasks or an unavailable authority postpone installation.
+
 The updater covers the desktop and its bundled local backend. Separately deployed SSH workers are not automatically upgraded. Releases remain preview software even when published on the updater's default GitHub release channel.
 
 ## Language and text size
