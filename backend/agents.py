@@ -52,11 +52,12 @@ def prompt_for(s):
     scope=(f"You may modify project files only inside the selected workspace: {s['task']['workspace']}. " if writable else 'This role is read-only: do not modify files; provide proposals as text only. ')
     return (f"You are the {s['role']} agent in Agent Control Center. "+scope+
         'Do not run destructive actions, trade, submit forms, or handle credentials. Produce a concise useful result, state assumptions and unverified claims. '
-        'For Plan: outline a short approach. If Acceptance is empty, derive concrete, checkable acceptance criteria from the goal and append them inside <acceptance_criteria>...</acceptance_criteria> (maximum 2000 characters). Separate verified evidence from unavailable work. For Execute: use only tools permitted by the assigned execution scope. '
+        'ACC schedules the roles sequentially. Judge only your current stage; do not invoke other agents or require a scheduler tool. Never block because a later stage has not run. '
+        'For Plan: a concrete plan and handoff satisfy your stage; report succeeded when those are ready, without waiting for Execute or Review. Outline a short approach. If Acceptance is empty, derive concrete, checkable acceptance criteria from the goal and append them inside <acceptance_criteria>...</acceptance_criteria> (maximum 2000 characters). Separate verified evidence from unavailable work. For Execute: complete the assigned work and provide evidence; do not wait for Review. Use only tools permitted by the assigned execution scope. '
         'For Review: inspect supplied results and explain whether the acceptance criteria are satisfied; never claim tests ran without evidence.\n'
         'Final output contract (all roles): emit exactly one <acc_result>{"status":"succeeded|blocked|failed","summary":"one sentence, at most 160 characters, no newlines","details":"evidence, changes, verification and limitations"}</acc_result>. '
-        'Use blocked when permissions, tools, connectivity or missing evidence prevent the assigned work; use failed when verification fails. Never report succeeded just because you produced text. '
-        'For Review, succeeded requires that the supplied evidence satisfies acceptance; otherwise blocked or failed. Keep acceptance_criteria outside acc_result. Do not quote prior acc_result tags.\n'
+        'Use blocked when permissions, tools, connectivity prevent the assigned work; use failed when verification fails. Never report succeeded just because you produced text. '
+        'For Execute, address all Review feedback in prior handoffs before resubmitting. For Review, succeeded automatically completes the task and requires evidence satisfying acceptance. Use failed for fixable defects or missing verification, with concrete changes and checks in details; this returns the task to Execute. Use blocked only for external obstacles requiring user input. Keep acceptance_criteria outside acc_result. Do not quote prior acc_result tags.\n'
         f"Task: {s['task']['prompt']}\nAcceptance: {s['task']['acceptance']}\nPrior handoffs:\n{context}"+
         ('\nBound project context (shared by all adapters):\n'+json.dumps(s['workspace_context'],ensure_ascii=False) if s.get('workspace_context') else ''))
 
@@ -83,9 +84,10 @@ def run(s, call, mac_workspace=None, demo=False, providers=None):
                 state=call('pulse',common)
                 if state['stop']: return call('finish',{**common,'output':'','stopped':state['stop'].split()[0]})
                 report('[SIMULATED] '+message); time.sleep(.45)
-            text={'Plan':'1. Inspect the requested scope.\n2. Analyze on the selected environment.\n3. Review results.\n4. Ask the user to accept the evidence.\n<acceptance_criteria>Simulated workflow produces three handoffs and explicitly identifies all unverified claims; the user reviews the results.</acceptance_criteria>',
+            text={'Plan':'1. Inspect the requested scope.\n2. Analyze on the selected environment.\n3. Review results.\n4. Reviewer checks the evidence.\n<acceptance_criteria>Simulated workflow produces three handoffs and explicitly identifies all unverified claims; the reviewer checks the results.</acceptance_criteria>',
                 'Execute':'Simulated execution result. No CLI or external command ran.\nThe demo produced this small handoff to demonstrate cross-host ordering.',
                 'Review':'The simulated handoff is internally consistent. This demonstrates orchestration only; no real acceptance tests were executed.'}[s['role']]
+            if s['role']=='Review':text='<acc_result>'+json.dumps({'status':'succeeded','summary':'Simulated review passed.','details':text})+'</acc_result>'
             return call('finish',{**common,'output':text})
         if s['agent'].startswith('api:'):
             if providers is None: raise ValueError('API provider is unavailable on this execution host')

@@ -34,7 +34,7 @@ flowchart TD
 | Secrets | CLI-owned auth; session keys in memory | No secrets in profiles, history or source control |
 | Network | SSH stdio, strict host-key checking | No public listener; Tailscale optional private transport |
 | Routing | Explicit host labels and selected profile | No fallback from remote to local execution |
-| Completion | Output plus explicit human acceptance | Exit 0 and model confidence are not acceptance evidence |
+| Completion | Structured Reviewer acceptance | Reviewer success completes; fixable rejection returns to Execute, up to three rounds |
 | Recovery | Leases; no blind replay | Unknown process/request outcomes become Blocked |
 | Packaging | macOS arm64 `.pkg`, bundled runtime | Local ad-hoc signatures; notarization remains pending |
 
@@ -111,7 +111,7 @@ Additive SQLite migrations add model/effort to steps (blank for old tasks) and a
 
 New tasks default to Create and run; save-only remains available. Explicit per-task workspace-write is limited to Codex Execute in the selected project directory; planning/review remain read-only, Claude remains tool-free. Codex's workspace-write sandbox stays enabled and CLI subprocess network access is allowed for Git. Root/home/native session directories are rejected. The directory must already exist. Worker capability negotiation prevents writes being silently ignored by older workers. No unrestricted access flags are used.
 
-Every real agent receives the same platform-injected result format: one final `<acc_result>` JSON object with status (`succeeded`, `blocked`, `failed`), a one-line summary of at most160 characters, and full details. Missing/malformed results fail closed. Blocked/failed outcomes stop dependent steps; successful review still requires user acceptance. CLI exit0 alone is insufficient. Timeline uses one bounded summary per step; raw output remains available under Debug logs. Older stored records are not reclassified automatically.
+Every real agent receives the same platform-injected result format: one final `<acc_result>` JSON object with status (`succeeded`, `blocked`, `failed`), a one-line summary of at most160 characters, and full details. Missing/malformed results fail closed. Blocked outcomes stop execution. A structured Review failure with concrete feedback returns to Execute for up to three revision rounds; a successful Review completes the task automatically. External obstacles or an exhausted revision limit require user input. CLI exit0 alone is insufficient. Timeline uses one bounded summary per step; raw output remains available under Debug logs. Older stored records are not reclassified automatically.
 
 Windows runner pipe-in timeouts remain an independently unverified runtime issue. Workspace permissions do not establish runner health or clone success. Desktop updates do not update remote workers.
 

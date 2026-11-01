@@ -41,7 +41,7 @@ Language changes affect interface labels, task states and common messages. Your 
 3. Choose **New task**. Enter a goal, acceptance criteria and an existing absolute workspace directory on the selected execution host.
 4. Choose an agent for **Planner**, **Executor** and **Reviewer**. You may use the same agent for all three.
 5. Create the draft, then click **Run**. Inspect the attributed timeline and handoffs.
-6. The task stops at **Verifying**. Click **Accept result** only after checking the evidence yourself.
+6. The Reviewer accepts the evidence and completes the task automatically, or returns concrete fixes to Execute. Up to three revision rounds run automatically; external blockers or exhausted revisions need your input. Legacy Verifying tasks can be sent back to the reviewer.
 
 For a no-cost walkthrough, select **Demo** from the environment menu. Demo uses simulated agents and a separate local database; it never makes model requests or imports native history. Local mode is real execution, not a demo.
 
@@ -249,7 +249,7 @@ Release build and `.pkg` instructions are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Current limits
 
-Fixed Plan → Execute → Review workflow; explicit human acceptance; read-only CLI/tool profiles; text-only APIs; one active authority at a time. No arbitrary planner-generated DAGs, native-session resume, arbitrary tool execution, MCP context server, unattended durable worker service, full offline task queue, Git worktree automation, large artifact transfer, multi-user ACLs, comprehensive backup/restore or notarization yet.
+Fixed Plan → Execute → Review workflow; automatic reviewer acceptance with up to three revision rounds; read-only CLI/tool profiles; text-only APIs; one active authority at a time. No arbitrary planner-generated DAGs, native-session resume, arbitrary tool execution, MCP context server, unattended durable worker service, full offline task queue, Git worktree automation, large artifact transfer, multi-user ACLs, comprehensive backup/restore or notarization yet.
 
 Native history imports are opt-in and bounded (100 files / 4 MB per scan); parsing covers basic JSONL formats, not every agent/version or desktop database. Same-size in-place rewrites and cross-source deduplication need further work. Imported records are limited in the UI; it is not a complete global search engine.
 
@@ -266,7 +266,7 @@ Display tests also check bilingual rendered settings, preference persistence, fo
 
 ### Task input, dictation and quota windows (0.7)
 
-Describe the task; the title is optional and derives from the first line. Leave acceptance criteria blank to let the planning agent generate checkable criteria. These are stored before execution and passed to the executor/reviewer. A missing or invalid criteria block fails planning; final completion still requires your explicit acceptance. Existing manually supplied criteria are preserved. Remote workers need the matching 0.7 backend for automatic criteria.
+Describe the task; the title is optional and derives from the first line. Leave acceptance criteria blank to let the planning agent generate checkable criteria. These are stored before execution and passed to the executor/reviewer. A missing or invalid criteria block fails planning; the Reviewer completes accepted work automatically and returns fixable failures to Execute. Existing manually supplied criteria are preserved. Remote workers need the matching 0.7 backend for automatic criteria.
 
 The last successfully used execution directory is remembered separately for local/demo and each SSH alias + storage root. Local first use inherits the directory in Settings. A remote directory must be set once on its host; no Mac path is substituted. Switching environments never copies workspaces.
 

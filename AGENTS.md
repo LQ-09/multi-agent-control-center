@@ -8,4 +8,4 @@
 - Run Python unit tests, the JSON bridge smoke test and npm run build for affected changes.
 - Release validation must also exercise the frozen backend without Python on PATH.
 - Explicitly distinguish simulated tests from real CLI and cross-host tests.
-- Never mark a task Completed without explicit acceptance. Preserve unknown execution outcomes on disconnect.
+- Mark a task Completed only after structured Reviewer acceptance; return fixable review failures to Execute for up to three revision rounds. Preserve unknown execution outcomes on disconnect.
