@@ -45,3 +45,5 @@ html.floating-html,html.floating-html body,html.floating-html #root{background:t
 .float-ring-button b{font-size:16px;letter-spacing:0}.float-ring-button b>.float-unknown{font-size:10px}
 .float-details{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px;margin-top:6px}
 .float-warning{font-size:9px}.float-ring-button{filter:drop-shadow(0 0 2px var(--panel))}
+
+.projects-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}.projects-grid label{display:block;margin:14px 0}.projects-grid input,.projects-grid textarea{width:100%;box-sizing:border-box}.project-card{padding:16px 0;border-bottom:1px solid var(--border);overflow-wrap:anywhere}.project-card code{white-space:pre-wrap}.project-worktrees{grid-column:1/-1}

@@ -2,6 +2,7 @@
 import argparse
 import base64
 import json
+import os
 import platform
 import queue
 import re
@@ -21,6 +22,15 @@ from agent_monitor import AgentMonitor
 DEFAULT = {'ssh_alias':'worker','windows_python':'python3','windows_service':'/home/user/agent-control-center/backend/service.py',
     'windows_root':'/home/user/agent-control-center/state','mac_workspace':str(Path.home()),
     'mode':'local','remote_os':'posix','profile':'single','routing':'auto'}
+
+def metadata_size(root):
+    total=0
+    for directory, folders, files in os.walk(root):
+        folders[:]=[name for name in folders if name!='workspaces']
+        for name in files:
+            try: total+=(Path(directory)/name).stat().st_size
+            except OSError: pass
+    return total
 
 def remote_command(config):
     argv=[config['windows_python'],'-u',config['windows_service'],'--root',config['windows_root']]
@@ -181,6 +191,12 @@ class Bridge:
             if self.config['mode']=='live':
                 local=self.fallback.snapshot()
                 data={**data,**{key:[dict(x,authority='remote') for x in data.get(key,[])]+[dict(x,authority='local') for x in local[key]] for key in ('tasks','steps','events','artifacts')}}
+                authority='remote:'+self.config['ssh_alias']+':'+self.config['windows_root']
+                cached={p['id']:p for p in local['projects'] if p.get('source_authority')==authority}
+                projects=data.get('projects',[]) if not stale else [dict(p,repo_path=p['remote_repo_path']) for p in cached.values()]
+                data['projects']=[dict(p,local_repo_path=cached[p['id']]['repo_path'] if p['id'] in cached else '',
+                    offline_ready=p['id'] in cached and cached[p['id']]['revision']==p['revision']) for p in projects]
+                data['workspaces']=[*data.get('workspaces',[]),*local['workspaces']]
             if self.config['mode']=='live':
                 data['tasks'].sort(key=lambda t:t.get('created',''),reverse=True)
                 data['artifacts'].sort(key=lambda a:a.get('created',''),reverse=True)
@@ -188,8 +204,9 @@ class Bridge:
             return {**data,'automatic_fallback':self.automatic(),'mode':self.config['mode'],'connected':self.connected,'stale':stale,'connection':self.config,'error':self.error,
                 'environments':self.environments,'providers':data.get('providers',[]) if self.config['mode']=='live' else self.providers.list(),'provider_presets':PRESETS,
                 'hosts':{'mac':{'host':platform.node(),'os':platform.system(),'agents':self.local_agents},'windows':self.info},
-                'mac_storage':{'managed_bytes':sum(p.stat().st_size for p in self.cache.rglob('*') if p.is_file()),'budget':1_000_000_000,'disk_free':shutil.disk_usage(self.cache).free},
-                'capabilities':{'live_profile':'read-only','general_dag':False,'automatic_verification':False,'mcp':False,'artifact_sync':'small-text-only'}}
+                'mac_storage':{'managed_bytes':metadata_size(self.cache),'budget':1_000_000_000,'disk_free':shutil.disk_usage(self.cache).free},
+                'capabilities':{'shared_workspaces':self.config['mode']!='live' or bool((self.info or {}).get('shared_workspaces')),
+                    'live_profile':'read-only','general_dag':False,'automatic_verification':False,'mcp':False,'artifact_sync':'small-text-only'}}
         if op=='agent_status':
             if self.config['mode']=='demo':return {'hosts':{},'demo':True}
             hosts={}
@@ -242,8 +259,21 @@ class Bridge:
                 self.connected=False; self.error=clean(e,2000)
                 if self.remote: self.remote.close()
                 raise
-        if self.config['mode']=='live' and op in ('control','artifact','artifact_versions') and self.routing.owns(op,args.get('id')):
+        if self.config['mode']=='live' and op in ('control','artifact','artifact_versions','project_context') and self.routing.owns(op,args.get('id')):
             return self.fallback.dispatch({'op':op,'args':args})
+        if op in ('save_project','cache_project'):
+            if self.config['mode']=='live' and not (self.info or {}).get('shared_workspaces'):
+                raise ValueError('Update the remote backend for shared projects and isolated workspaces.')
+            if self.config['mode']=='demo':
+                raise ValueError('Register real projects in a local or SSH environment, not Demo.')
+        if op=='cache_project':
+            if self.config['mode']!='live' or not self.connected:
+                raise ValueError('Connect the remote environment before pairing a local clone.')
+            config=self.call('export_project',{'id':args['id']})
+            authority='remote:'+self.config['ssh_alias']+':'+self.config['windows_root']
+            return self.fallback.workspaces.cache(config,args['repo_path'],authority)
+        if op=='save_project':
+            return self.call(op,args)
         if op=='create' and self.automatic():
             if self.connected and not (self.info or {}).get('windows_first'): raise ValueError('Update the Windows backend for automatic all-Windows routing.')
             local,payload=self.routing.submission(args,self.config,self.connected)
@@ -255,6 +285,8 @@ class Bridge:
                     self.monitor.validate_selection(agent,option)
                 return self.fallback.create(payload)
             args=payload
+        if op=='create' and args.get('project_id') and self.config['mode']=='live' and not (self.info or {}).get('shared_workspaces'):
+            raise ValueError('Update the remote backend for shared projects and isolated workspaces.')
         if op in ('artifact_versions',) or (op=='control' and args.get('action') in ('restart','archive','restore')):
             if self.config['mode']=='live' and not (self.info or {}).get('task_management'): raise ValueError('Update the remote backend for task recovery and artifact history.')
         if self.config['mode']=='live' and op in ('provider_models','save_provider','save_agent_defaults') and not (self.info or {}).get('model_catalog'):
@@ -294,7 +326,7 @@ class Bridge:
                 if agent.startswith('api:'):
                     if self.config['mode']=='live' and self.config['profile']=='split' and not self.automatic() and i!=1: raise ValueError('Split-mode local planning/review currently requires Codex or Claude CLI')
                     if self.config['mode']=='local': self.providers.get(agent[4:])
-        if op not in ('create','control','artifact','artifact_versions'): raise ValueError('Unknown desktop operation')
+        if op not in ('create','control','artifact','artifact_versions','project_context'): raise ValueError('Unknown desktop operation')
         return self.call(op,args)
 
 def main():
