@@ -4,7 +4,13 @@
 
 Tauri 2 · React · TypeScript · Python · SQLite · MIT
 
-> **Preview software.** The current workflow is read-only: Codex can inspect files, Claude Code is tool-free, and API models receive text only. This is not an autonomous coding agent, a trading system, or a production multi-user service. See [limitations](#current-limits) before relying on results.
+> **Preview software.** Codex defaults to read-only with explicit per-task workspace-write for Execute; Claude Code is tool-free and API models receive text only. This is not an autonomous coding agent, a trading system, or a production multi-user service. See [limitations](#current-limits) before relying on results.
+
+## Shared projects (0.12)
+
+Register existing Git projects in **Projects**, then select one when creating a task. ACC creates an isolated task worktree, attaches pinned shared documents and file-storage rules to every agent, and checks source versions across handoffs and acceptance. Original project folders and native agent sessions stay in place. Explicit Codex Execute workspace-write remains supported; Claude and API models receive the shared context as text. [Setup, guarantees and boundaries](docs/shared-workspaces.md).
+
+Windows-first execution stores these worktrees on Windows. Mac fallback requires an explicitly paired existing clone containing the cached remote commit. A global Mac path alone no longer authorizes offline execution. Existing tasks are not migrated. The remote backend must be upgraded separately.
 
 ## Install
 

@@ -10,8 +10,13 @@ globalThis.localStorage={getItem:key=>storage.get(key)??null,setItem:(key,value)
 globalThis.document={documentElement:{lang:'',style:{setProperty:(key,value)=>styles.set(key,value)}}};
 try{
  const outfile=join(temporary,'display.mjs');
- await build({stdin:{contents:"export * from './src/task-actions';export * from './src/task-timeline';export * from './src/i18n';export * from './src/display';export * from './src/settings';export * from './src/agent-controls';export * from './src/floating-usage';export {renderToStaticMarkup as render} from 'react-dom/server';export {createElement as h} from 'react';",resolveDir:process.cwd(),loader:'tsx'},outfile,bundle:true,platform:'node',format:'esm',banner:{js:"import {createRequire} from 'node:module';const require=createRequire(import.meta.url);"}});
+ await build({stdin:{contents:"export * from './src/projects';export * from './src/task-actions';export * from './src/task-timeline';export * from './src/i18n';export * from './src/display';export * from './src/settings';export * from './src/agent-controls';export * from './src/floating-usage';export {renderToStaticMarkup as render} from 'react-dom/server';export {createElement as h} from 'react';",resolveDir:process.cwd(),loader:'tsx'},outfile,bundle:true,platform:'node',format:'esm',banner:{js:"import {createRequire} from 'node:module';const require=createRequire(import.meta.url);"}});
  const ui=await import(pathToFileURL(outfile));
+ const project={id:'p',name:'Example',revision:1,repo_path:'D:/Projects/example',documents:['README.md'],base_commit:'a'.repeat(40),rules:'Reports in outputs'};
+ let projects=ui.render(ui.h(ui.Projects,{data:{mode:'live',connected:true,projects:[project],workspaces:[],tasks:[],capabilities:{shared_workspaces:true}},busy:false,action:async()=>{}}));
+ assert.match(projects,/项目与工作区/);assert.match(projects,/D:\/Projects\/example/);assert.match(projects,/校验并关联本机仓库/);
+ ui.setLanguage('en');projects=ui.render(ui.h(ui.Projects,{data:{mode:'live',connected:false,projects:[project],workspaces:[],tasks:[],capabilities:{shared_workspaces:false}},busy:false,action:async()=>{}}));
+ assert.match(projects,/Connect an updated backend/);assert.match(projects,/<button disabled="">Edit/);ui.setLanguage('zh');
  assert.equal(ui.handoffSummary('<acc_result>{"status":"blocked","summary":"Missing access. More text.","details":"raw"}</acc_result>'),'Missing access.');
  assert.equal(ui.handoffSummary('Legacy first line\nRaw second line'),'Legacy first line');
  assert.equal(ui.handoffSummary('x'.repeat(300)).length,160);

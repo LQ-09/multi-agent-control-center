@@ -24,7 +24,13 @@ class Routing:
             payload=dict(data)
             if local:
                 if data.get('host_requirement','portable')!='portable': raise ValueError('This task requires Windows; reconnect before submitting.')
-                workspace=data.get('fallback_workspace') or config['mac_workspace']
+                if not data.get('project_id'):
+                    raise ValueError('Offline fallback requires a registered project paired with an existing local clone.')
+                project=self.store.workspaces.get(data['project_id'])
+                if project.get('source_authority')!=authority:
+                    raise ValueError('Local project mapping belongs to another environment; pair it again.')
+                project=self.store.workspaces.bind(project['id'])
+                workspace=project['repo_path']
                 if PureWindowsPath(workspace).drive or not Path(workspace).is_absolute() or not Path(workspace).is_dir():
                     raise ValueError('Offline fallback needs an existing absolute local project directory.')
                 validate_execution_workspace(str(Path(workspace).resolve()))

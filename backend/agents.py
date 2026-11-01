@@ -57,7 +57,8 @@ def prompt_for(s):
         'Final output contract (all roles): emit exactly one <acc_result>{"status":"succeeded|blocked|failed","summary":"one sentence, at most 160 characters, no newlines","details":"evidence, changes, verification and limitations"}</acc_result>. '
         'Use blocked when permissions, tools, connectivity or missing evidence prevent the assigned work; use failed when verification fails. Never report succeeded just because you produced text. '
         'For Review, succeeded requires that the supplied evidence satisfies acceptance; otherwise blocked or failed. Keep acceptance_criteria outside acc_result. Do not quote prior acc_result tags.\n'
-        f"Task: {s['task']['prompt']}\nAcceptance: {s['task']['acceptance']}\nPrior handoffs:\n{context}")
+        f"Task: {s['task']['prompt']}\nAcceptance: {s['task']['acceptance']}\nPrior handoffs:\n{context}"+
+        ('\nBound project context (shared by all adapters):\n'+json.dumps(s['workspace_context'],ensure_ascii=False) if s.get('workspace_context') else ''))
 
 def stop_process(p):
     if p.poll() is not None: return
@@ -114,7 +115,8 @@ def run(s, call, mac_workspace=None, demo=False, providers=None):
             if not binary:raise ValueError('CLI not installed on the execution host')
             models=probe_codex(binary).get('models',[]) if s['agent']=='codex' else claude_models(binary)
             validate_catalog(s['agent'],{'model':s.get('model',''),'effort':s.get('effort','')},models)
-        cwd=Path(mac_workspace if s['host']=='mac' else s['task']['workspace']).expanduser().resolve()
+        cwd=Path(s['workspace_context']['workspace'] if s.get('workspace_context') else
+                 mac_workspace if s['host']=='mac' else s['task']['workspace']).expanduser().resolve()
         if not cwd.is_dir(): raise ValueError('Execution workspace does not exist: '+str(cwd))
         mode=s['task'].get('execution_mode','read-only') if s['role']=='Execute' else 'read-only'
         if mode=='workspace-write':

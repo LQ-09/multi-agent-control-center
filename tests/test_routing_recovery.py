@@ -7,6 +7,7 @@ from unittest.mock import MagicMock,patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'backend'))
 from core import Store
 from bridge import Bridge
+from test_workspaces import make_repo
 
 class RoutingTests(unittest.TestCase):
     def setUp(self):
@@ -18,10 +19,17 @@ class RoutingTests(unittest.TestCase):
     def tearDown(self):
         for store in (self.b.demo,self.b.local,self.b.fallback):store.close()
         self.tmp.cleanup()
+    def pair(self):
+        repo=make_repo(Path(self.tmp.name)/'repo')
+        project=self.b.fallback.workspaces.save(dict(name='Fixture',repo_path=str(repo),documents=[]))
+        authority='remote:'+self.b.config['ssh_alias']+':'+self.b.config['windows_root']
+        self.b.fallback.workspaces.cache(project,str(repo),authority)
+        self.data['project_id']=project['id']
+        return repo.resolve()
     def create(self): return self.b.dispatch({'op':'create','args':self.data})['id']
     def remote(self):
         self.b.remote=MagicMock();self.b.connected=True
-        self.b.info={'windows_first':1,'planned_acceptance':1}
+        self.b.info={'windows_first':1,'planned_acceptance':1,'shared_workspaces':1}
         self.b.remote.call.side_effect=lambda op,args=None: {'id':'remote-task'} if op=='create' else {'tasks':[],'steps':[],'events':[],'artifacts':[]}
     def test_connected_submission_routes_every_role_to_windows(self):
         self.remote();self.create()
@@ -32,10 +40,10 @@ class RoutingTests(unittest.TestCase):
             self.assertEqual([s['host'] for s in store.snapshot()['steps']],['windows']*3)
         finally:store.close()
     def test_offline_submission_runs_locally_and_remains_local_after_reconnect(self):
-        ident=self.create();self.assertEqual(ident,self.create())
+        repo=self.pair();ident=self.create();self.assertEqual(ident,self.create())
         self.remote()
         self.b.dispatch({'op':'control','args':dict(id=ident,action='run',revision=1)})
-        step=self.b.fallback.claim('local'); self.assertEqual(step['task']['workspace'],str(Path(self.tmp.name).resolve()))
+        step=self.b.fallback.claim('local'); self.assertNotEqual(step['task']['workspace'],str(repo)); self.assertTrue(Path(step['task']['workspace']).is_dir())
         self.assertFalse(any(c.args[0]=='control' for c in self.b.remote.call.call_args_list))
         self.assertEqual(self.create(),ident)
         snap=self.b.dispatch({'op':'snapshot'})
@@ -51,23 +59,24 @@ class RoutingTests(unittest.TestCase):
         self.data['host_requirement']='windows'
         with self.assertRaisesRegex(ValueError,'requires Windows'):self.create()
         self.data['host_requirement']='portable';self.data['fallback_workspace']='/missing-acc-project'
-        with self.assertRaisesRegex(ValueError,'existing absolute'):self.create()
+        with self.assertRaisesRegex(ValueError,'registered project'):self.create()
         self.data['fallback_workspace']=str(Path.home())
         with self.assertRaises(ValueError):self.create()
         self.assertEqual(self.b.fallback.snapshot()['tasks'],[])
     def test_missing_local_cli_blocks_fallback(self):
-        self.b.local_agents={}
+        self.pair();self.b.local_agents={}
         with self.assertRaisesRegex(ValueError,'CLI unavailable'):self.create()
     def test_route_survives_broker_restart(self):
-        ident=self.create()
+        self.pair();ident=self.create()
         with patch('bridge.threading.Thread.start'),patch('bridge.version',return_value={'available':True}): b2=Bridge(self.tmp.name)
         try:
-            b2.config.update(self.b.config);b2.connected=True;b2.info={'windows_first':1};b2.remote=MagicMock()
+            b2.config.update(self.b.config);b2.connected=True;b2.info={'windows_first':1,'shared_workspaces':1};b2.remote=MagicMock()
             self.assertEqual(b2.dispatch({'op':'create','args':self.data})['id'],ident)
             b2.remote.call.assert_not_called()
         finally:
             for store in (b2.demo,b2.local,b2.fallback):store.close()
     def test_no_remote_inflight_task_is_copied(self):
+        self.pair()
         self.b.last_live={'tasks':[dict(id='old',status='Running')],'steps':[],'events':[],'artifacts':[]}
         self.create();snap=self.b.dispatch({'op':'snapshot'})
         self.assertTrue(snap['stale']);self.assertEqual(len(snap['tasks']),2)

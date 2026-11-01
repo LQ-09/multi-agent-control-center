@@ -1,5 +1,7 @@
 # Architecture decisions — public preview 0.3
 
+For the additive 0.12 project registry, immutable context, per-task worktree and offline-pairing amendments, see [shared workspaces](shared-workspaces.md). Those rules supersede the earlier path-only fallback behavior for new offline submissions.
+
 ## Operating modes
 
 A fresh installation uses a local SQLite authority and executes all three roles on the current host. Demo uses a separate database and simulated agents. An optional SSH environment places authority and execution on a remote Windows, Linux or macOS host. The explicit Windows-first split profile keeps canonical state on Windows and local planning/review on the desktop host.
