@@ -7,7 +7,7 @@ import './style.css';
 import {FloatingUsage,usageWindow} from './floating-usage';
 import {TaskActions,ArtifactList} from './task-actions';
 import {TaskTimeline,handoffSummary} from './task-timeline';
-import {Updates} from './updates';
+import {Updates,useAutoUpdates} from './updates';
 import {UsageSidebar,useAgentStatus,AgentSettings,AgentOptions,initialDefaults,modelsFor,AgentDefaults,AgentStatus,Selection} from './agent-controls';
 import {EnvironmentSettings,ProviderSettings} from './settings';
 import {Projects,TaskContext} from './projects';
@@ -34,6 +34,7 @@ function App(){
  const remote=data?.mode==='live',split=remote&&data?.connection.profile==='split'&&!data?.automatic_fallback;
  const environment=remote?(data?.connection.ssh_alias||tr('Remote')):tr('This computer');
  const allTasks=data?.tasks||[],tasks=allTasks.filter(t=>!t.archived),steps=data?.steps||[],events=data?.events||[];
+ useAutoUpdates(Boolean(data?.connected&&!data?.stale&&!busy&&!modal&&!tasks.some(t=>['Running','Planning','Queued','Blocked'].includes(t.status))));
  const task=allTasks.find(t=>t.id===selected), active=tasks.filter(t=>['Running','Planning','Queued'].includes(t.status)),verify=tasks.filter(t=>t.status==='Verifying');
  function open(t:Task){setSelected(t.id);setView('Tasks');setTab('Timeline')}
  const filtered=allTasks.filter(t=>Boolean(t.archived)===trash).filter(t=>(t.title+' '+t.prompt).toLowerCase().includes(query.toLowerCase()));

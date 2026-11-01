@@ -45,7 +45,7 @@ try:
     if not key:
         raise SystemExit('Set ACC_UPDATER_KEY to the private signing key path; no unsigned update is published.')
     subprocess.run(['npx', 'tauri', 'signer', 'sign', '-f', key, '-p', '', '--app-version', version, str(archive)], check=True)
-    manifest={'version':version,'notes':'Automatic reviewer acceptance, revision loop and stage-specific handoffs. 审核自动验收、失败自动返工、阶段职责修正；远程后端需单独升级。',
+    manifest={'version':version,'notes':'Optional automatic updates: check at startup and hourly, install when idle. 新增自动更新开关：启动及每小时检查，任务空闲时安装并重启。',
         'platforms':{'darwin-aarch64':{'url':f'https://github.com/LQ-09/multi-agent-control-center/releases/download/v{version}/{archive.name}',
         'signature':Path(str(archive)+'.sig').read_text().strip()}}}
     (root/'build/latest.json').write_text(json.dumps(manifest,indent=2)+'\n')

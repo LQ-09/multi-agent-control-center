@@ -437,5 +437,7 @@
   "A separate worktree will be created when the task starts. Uncommitted files in the original project are not included.": "启动时建立独立工作副本，不包含原目录里尚未提交的修改。",
   "Agent acceptance": "审核 Agent 验收",
   "The reviewer completes accepted work or returns specific fixes to the executor. After three revision rounds, unresolved work needs your input.": "审核通过后自动完成；未通过则带修改意见返回执行 Agent。最多自动返工三轮，仍未解决时才需要你介入。",
-  "Send to reviewer": "交给审核 Agent 验收"
+  "Send to reviewer": "交给审核 Agent 验收",
+  "Automatic updates": "自动更新",
+  "When enabled, check at startup and hourly; install and restart automatically when tasks are idle. Remote workers are updated separately.": "开启后在启动时及每小时检查更新；任务空闲时自动安装并重启。远程 Worker 需单独更新。"
 }
