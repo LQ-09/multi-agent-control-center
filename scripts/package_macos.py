@@ -45,7 +45,7 @@ try:
     if not key:
         raise SystemExit('Set ACC_UPDATER_KEY to the private signing key path; no unsigned update is published.')
     subprocess.run(['npx', 'tauri', 'signer', 'sign', '-f', key, '-p', '', '--app-version', version, str(archive)], check=True)
-    manifest={'version':version,'notes':'Usage widget starts at the left edge and restores its saved position after restart. 悬浮窗首次靠左，关闭/退出/更新后恢复上次位置。',
+    manifest={'version':version,'notes':'Shared project registry, isolated task worktrees, pinned agent context and verified offline clone mapping. 项目登记、独立任务工作副本、自动共享上下文与离线仓库校验；远程后端需单独升级。',
         'platforms':{'darwin-aarch64':{'url':f'https://github.com/LQ-09/multi-agent-control-center/releases/download/v{version}/{archive.name}',
         'signature':Path(str(archive)+'.sig').read_text().strip()}}}
     (root/'build/latest.json').write_text(json.dumps(manifest,indent=2)+'\n')

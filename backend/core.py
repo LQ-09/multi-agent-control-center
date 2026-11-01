@@ -102,6 +102,8 @@ class Store:
         task_columns={r[1] for r in self.db.execute('PRAGMA table_info(tasks)')}
         if 'execution_mode' not in task_columns:self.db.execute("ALTER TABLE tasks ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'read-only'")
         if 'archived' not in task_columns:self.db.execute("ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+        from workspaces import Workspaces
+        self.workspaces = Workspaces(self)
         self.db.commit()
     @contextmanager
     def transaction(self):
@@ -127,8 +129,15 @@ class Store:
         if row is None: raise ValueError('Task not found')
         return dict(row)
     def create(self, data):
+        with self.lock:
+            previous=self.db.execute('SELECT * FROM commands WHERE key=?',(data.get('key'),)).fetchone()
+            if previous:
+                if previous['request_hash']!=digest(json.dumps(data,sort_keys=True)):
+                    raise ValueError('Idempotency key payload conflict')
+                return json.loads(previous['result'])
+        project = self.workspaces.bind(data['project_id']) if data.get('project_id') else None
         title=str(data.get('title','')).strip(); prompt=str(data.get('prompt','')).strip()
-        workspace=str(data.get('workspace','')).strip(); acceptance=str(data.get('acceptance','')).strip()
+        workspace=project['repo_path'] if project else str(data.get('workspace','')).strip(); acceptance=str(data.get('acceptance','')).strip()
         if not prompt: raise ValueError('Task brief is required.')
         title=title or prompt.splitlines()[0][:80]
         if len(prompt)>12000 or len(title)>160 or len(acceptance)>2000: raise ValueError('Task input is too large.')
@@ -156,6 +165,11 @@ class Store:
                 (ident,clean(title),clean(prompt),'Draft',now(),workspace,clean(acceptance),int(self.demo)))
             self.db.execute('UPDATE tasks SET execution_mode=? WHERE id=?',(execution_mode,ident))
             preferred=self.host or ('windows' if data.get('routing')=='windows-first' else None)
+            if project:
+                if not preferred:
+                    raise ValueError('Managed projects require all roles on one host; select automatic Windows routing or a single-host profile.')
+                self.db.execute('UPDATE tasks SET project_id=?,project_config=? WHERE id=?',
+                                (project['id'],json.dumps(project),ident))
             for pos,(role,host) in enumerate([('Plan',preferred or 'mac'),('Execute',preferred or 'windows'),('Review',preferred or 'mac')]):
                 self.db.execute('INSERT INTO steps(id,task_id,position,role,agent,host,status,model,effort) VALUES(?,?,?,?,?,?,?,?,?)',(uid(),ident,pos,role,agents[pos],host,'Pending',options[pos]['model'],options[pos]['effort']))
             self.event(ident,'task.created',f'Task saved. Execution scope: {execution_mode}; planning and review remain read-only.')
@@ -185,6 +199,7 @@ class Store:
                 return {'status':t['status'],'archived':action=='archive'}
             if action=='restart':
                 self.db.execute("UPDATE steps SET status='Pending',attempt=NULL,session=NULL,lease=NULL,error=NULL,output='' WHERE task_id=?",(ident,))
+                self.db.execute("UPDATE tasks SET workspace_id='' WHERE id=?",(ident,))
                 status='Queued'
             elif action=='run':
                 if t['status'] not in ('Draft','Paused'): raise ValueError('Only draft or paused tasks can be started.')
@@ -207,6 +222,7 @@ class Store:
                 if active: self.db.execute('UPDATE steps SET error=? WHERE id=?',(action+' requested',active['id']))
             elif action=='accept':
                 if t['status']!='Verifying': raise ValueError('All agent steps must finish before acceptance.')
+                self.workspaces.verify_acceptance(t)
                 status='Completed'
                 self.event(ident,'verification.accepted','User explicitly accepted the current read-only result against: '+t['acceptance'])
             else: raise ValueError('Unsupported action')
@@ -230,6 +246,16 @@ class Store:
             self.event(s['task_id'],'step.started',f"{s['role']} started on {host}; {s['agent']} {self.get_task(s['task_id'])['execution_mode'] if s['role']=='Execute' else 'read-only'} profile.",s,status)
             t=self.get_task(s['task_id']); s['task']=t
             s['context']=[dict(r) for r in self.db.execute("SELECT role,output FROM steps WHERE task_id=? AND status='Succeeded' ORDER BY position",(s['task_id'],))]
+            try:
+                self.workspaces.prepare(s)
+            except Exception as exc:
+                message=clean(exc,2000)
+                self.db.execute("UPDATE steps SET status='Blocked',error=?,lease=NULL WHERE id=?",(message,s['id']))
+                self.db.execute("UPDATE tasks SET status='Blocked',revision=revision+1 WHERE id=?",(s['task_id'],))
+                self.event(s['task_id'],'workspace.blocked',message,s,'Blocked')
+                return None
+            s['lease']=time.time()+45
+            self.db.execute('UPDATE steps SET lease=? WHERE id=?',(s['lease'],s['id']))
             return s
     def check_attempt(self, step_id, attempt):
         s=self.db.execute('SELECT * FROM steps WHERE id=?',(step_id,)).fetchone()
@@ -262,6 +288,10 @@ class Store:
             if result:
                 summary=result['summary']
                 if result['status']!='succeeded': error=summary
+            try:
+                self.workspaces.checkpoint(s)
+            except Exception as exc:
+                error=clean(exc,2000); summary=error[:160]
             if stopped:
                 status='Paused' if stopped=='pause' else 'Cancelled'; step_status='Pending' if stopped=='pause' else 'Cancelled'
             elif error:
@@ -295,7 +325,8 @@ class Store:
     def snapshot(self):
         self.expire()
         with self.lock:
-            return {'agent_defaults':self.agent_defaults(),'tasks':[dict(r) for r in self.db.execute('SELECT * FROM tasks ORDER BY created DESC LIMIT 200')],
+            return {'projects':self.workspaces.list(),'workspaces':[dict(r) for r in self.db.execute('SELECT * FROM workspaces ORDER BY created DESC LIMIT 200')],
+                'agent_defaults':self.agent_defaults(),'tasks':[{k:r[k] for k in r.keys() if k!='project_config'} for r in self.db.execute('SELECT * FROM tasks ORDER BY created DESC LIMIT 200')],
                 'steps':[dict(r) for r in self.db.execute('SELECT * FROM steps ORDER BY position LIMIT 1000')],
                 'events':[dict(r) for r in self.db.execute('SELECT * FROM events ORDER BY sequence_number DESC LIMIT 160')][::-1],
                 'artifacts':self.latest_artifacts(),
@@ -340,6 +371,9 @@ class Store:
         op=r.get('op'); a=r.get('args',{})
         if op=='snapshot': return self.snapshot()
         if op=='save_agent_defaults': return self.save_agent_defaults(a)
+        if op=='save_project': return self.workspaces.save(a)
+        if op=='export_project': return self.workspaces.bind(a['id'])
+        if op=='project_context': return self.workspaces.context(a['id'])
         if op=='create': return self.create(a)
         if op=='control': return self.control(a['id'],a['action'],a['revision'])
         if op=='claim': return self.claim(a['host'])
