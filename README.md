@@ -4,7 +4,7 @@
 
 Tauri 2 · React · TypeScript · Python · SQLite · MIT
 
-> **Preview software.** Codex defaults to read-only with explicit per-task workspace-write for Execute; Claude Code is tool-free and API models receive text only. This is not an autonomous coding agent, a trading system, or a production multi-user service. See [limitations](#current-limits) before relying on results.
+> **Preview software.** Codex defaults to read-only with explicit per-task workspace-write for Execute; Claude Code has web research tools and API models receive text only. This is not an autonomous coding agent, a trading system, or a production multi-user service. See [limitations](#current-limits) before relying on results.
 
 ## Shared projects (0.12)
 
@@ -72,7 +72,7 @@ The top-right theme selector offers **Light (black on white)**, **Dark (white on
 | Adapter | Authentication | Capabilities in this release |
 |---|---|---|
 | Codex CLI | Your existing CLI login | Read-only workspace analysis; structured CLI output |
-| Claude Code CLI | Your existing CLI login | Text reasoning; tools and MCP explicitly disabled |
+| Claude Code CLI | Your existing CLI login | WebSearch/WebFetch; optional ACC browser MCP |
 | DeepSeek | Session API key or `DEEPSEEK_API_KEY` | Text planning, analysis and review via Chat Completions |
 | OpenAI-compatible API | Session key or a named host environment variable | Text responses; exact model ID and base URL are configurable |
 | Ollama / compatible local server | Usually no key for local Ollama | Text responses from a model you already installed; no automatic model downloads |
@@ -100,7 +100,7 @@ For SSH execution, perform installation and login on the **remote computer under
 
 If Hosts says the command was not found, verify its installation location and restart the app. Standard macOS Homebrew, user-local and nvm paths are searched. A nonstandard executable path currently has no manual picker in the UI. Shell-only environment overrides and custom authentication directories are not automatically imported from an interactive terminal.
 
-**Current boundary:** these adapters start bounded task runs. They do not attach to an already-open terminal conversation or resume native historical sessions. Codex uses read-only tools; Claude Code's tools are disabled in this preview.
+**Current boundary:** these adapters start bounded task runs. They do not attach to an already-open terminal conversation or resume native historical sessions. Codex uses read-only tools; Claude Code has WebSearch/WebFetch and optional ACC browser tools, without shell or file-edit tools.
 
 ### 接入自己的 Codex / Claude Code（中文）
 
@@ -109,7 +109,7 @@ If Hosts says the command was not found, verify its installation location and re
 - 安装后完全退出并重开本应用，在「主机」查看版本。检测到版本不代表登录或额度一定正常。
 - 新建任务时给规划、执行、审查角色选择 Codex 或 Claude Code，点击运行后由应用后台启动，不需要一直开着终端。
 - 远程任务需要在远程主机用 SSH 登录账户安装和登录；Mac 的登录不会自动传到 Windows。单机使用无需增加环境。
-- 当前不会接管已有终端对话或恢复原生历史会话；Codex 只读，Claude Code 暂不启用工具。DeepSeek 等 API 服务商才需要在「模型服务商」里配置地址、模型和密钥。
+- 当前不会接管已有终端对话或恢复原生历史会话；Codex 只读，Claude Code 支持网页搜索和抓取，可接入 ACC 专用浏览器。DeepSeek 等 API 服务商才需要在「模型服务商」里配置地址、模型和密钥。
 
 ### Connect DeepSeek
 
@@ -419,3 +419,13 @@ The [workspace/context audit and proposal](docs/workspace-context-proposal.md)
 distinguishes current path fields and text handoffs from the proposed project
 registry, isolated worktrees, automatic rule injection, shared skills and MCP.
 That proposal is not a shipped workspace manager.
+
+## Web research and dynamic websites
+
+Codex uses live web search in all roles, independently of project write permission. Claude has WebSearch/WebFetch and an allowlist of browser interaction tools; shell and file-edit tools remain disabled. Text API providers still have no tools.
+
+Install Node.js 18+ and Microsoft Edge on the Windows execution host (Chrome on macOS/Linux), then run `python backend/install_browser.py` there. This installs pinned Playwright MCP 0.0.84 under `~/AgentControlCenter/browser-runtime`, without editing native Codex/Claude configuration or importing personal browser profiles. Reconnect ACC after deploying the updated backend. Each task gets a separate persistent browser profile, reused by its sequential roles and retries. Browser data/evidence stays on that execution host.
+
+The capability event distinguishes missing runtime from configured-but-unverified; it does not prove browser launch, login or site connectivity. Validate with a real task that opens a public page, uses a query/date filter, and has its reviewer independently reopen the source. Login/CAPTCHA/site-permission blockers require manual resolution and explicit retry. Searching and filtering are allowed; bookings, payments and external messages are not authorized by a research task. Prices must include exact dates, occupancy, room, currency, observed time and source.
+
+This setup requires a logged-in Windows interactive worker. Updating the Mac desktop alone does not update that worker. The browser tools are not a security sandbox; research-only actions are also enforced by task instructions.

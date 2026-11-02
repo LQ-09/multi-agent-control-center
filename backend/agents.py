@@ -1,4 +1,4 @@
-"""CLI adapters: read-only Codex and tool-free Claude, never a shell prompt executor."""
+"""CLI adapters with scoped file access and explicit research tools."""
 import json
 import atexit
 import os
@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from core import clean, uid, result_contract
 from agent_settings import selection
+from browser_tools import browser_server, codex_browser_args, BROWSER_TOOLS, research_capabilities
 
 CHILDREN = set()
 CHILD_LOCK = threading.Lock()
@@ -31,7 +32,7 @@ def version(agent):
         return {'available':p.returncode==0,'path':binary,'version':clean(p.stdout.strip() or p.stderr,300)}
     except Exception as e: return {'available':False,'error':clean(e,300)}
 
-def argv(agent, model="", effort="", execution_mode="read-only"):
+def argv(agent, model="", effort="", execution_mode="read-only", task_id='default'):
     if execution_mode not in ("read-only", "workspace-write") or (execution_mode=="workspace-write" and agent!="codex"):
         raise ValueError("Workspace writes require Codex Execute")
     selection(agent,{"model":model,"effort":effort})
@@ -39,11 +40,15 @@ def argv(agent, model="", effort="", execution_mode="read-only"):
     if effort:extra+=(["-c",'model_reasoning_effort="'+effort+'"'] if agent=="codex" else ["--effort",effort])
     binary=shutil.which(agent)
     if not binary: raise ValueError(f'{agent} is not installed or not visible in the background process PATH')
+    server=browser_server(task_id)
+    if agent=='codex': extra+=['-c','web_search="live"',*codex_browser_args(server)]
     if agent=='codex':
         return [binary,*extra,*(['-c','sandbox_workspace_write.network_access=true','-c','sandbox_workspace_write.writable_roots=[]','-c','sandbox_workspace_write.exclude_tmpdir_env_var=true','-c','sandbox_workspace_write.exclude_slash_tmp=true'] if execution_mode=='workspace-write' else []),'-a','never','exec','--json','--sandbox',execution_mode,'--skip-git-repo-check','-']
-    # No shell, filesystem or MCP tools are enabled for this Claude prototype adapter.
     if agent=='claude':
-        return [binary,*extra,'-p','--output-format','stream-json','--verbose','--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--permission-mode','dontAsk']
+        allowed=['WebSearch','WebFetch']+(['mcp__acc_browser__'+tool for tool in BROWSER_TOOLS] if server else [])
+        return [binary,*extra,'-p','--output-format','stream-json','--verbose','--tools','WebSearch,WebFetch',
+                '--allowedTools',','.join(allowed),'--strict-mcp-config','--mcp-config',
+                json.dumps({'mcpServers':{'acc_browser':server} if server else {}}),'--permission-mode','dontAsk']
     raise ValueError('Unsupported agent')
 
 def prompt_for(s):
@@ -51,7 +56,10 @@ def prompt_for(s):
     writable=s['role']=='Execute' and s['task'].get('execution_mode')=='workspace-write'
     scope=(f"You may modify project files only inside the selected workspace: {s['task']['workspace']}. " if writable else 'This role is read-only: do not modify files; provide proposals as text only. ')
     return (f"You are the {s['role']} agent in Agent Control Center. "+scope+
-        'Do not run destructive actions, trade, submit forms, or handle credentials. Produce a concise useful result, state assumptions and unverified claims. '
+        'Do not run destructive actions, trade, book, purchase, send messages or handle credentials. Search/date/filter forms are permitted for research. Produce a concise useful result, state assumptions and unverified claims. '
+        'Filesystem read-only does not prohibit web research or browser-managed profiles and evidence. Use live search for current facts and acc_browser for dynamic pages when configured; do not assume a desktop/iab browser exists. '
+        'If login, CAPTCHA or site permission is required, report blocked with the URL and required user action; never bypass it. Distinguish missing tools, connectivity errors and site access restrictions. '
+        'For prices, record source URL, observation time, dates, occupancy, room/product, currency, total and fees/cancellation conditions; never infer dated prices from search snippets. Review must independently reopen the cited sources when current external evidence is required. '
         'ACC schedules the roles sequentially. Judge only your current stage; do not invoke other agents or require a scheduler tool. Never block because a later stage has not run. '
         'For Plan: a concrete plan and handoff satisfy your stage; report succeeded when those are ready, without waiting for Execute or Review. Outline a short approach. If Acceptance is empty, derive concrete, checkable acceptance criteria from the goal and append them inside <acceptance_criteria>...</acceptance_criteria> (maximum 2000 characters). Separate verified evidence from unavailable work. For Execute: complete the assigned work and provide evidence; do not wait for Review. Use only tools permitted by the assigned execution scope. '
         'For Review: inspect supplied results and explain whether the acceptance criteria are satisfied; never claim tests ran without evidence.\n'
@@ -128,7 +136,8 @@ def run(s, call, mac_workspace=None, demo=False, providers=None):
             protected=[home/'.codex',home/'.claude',home/'.ssh']
             if cwd==home or any(cwd==p or p in cwd.parents or cwd in p.parents for p in protected):
                 raise ValueError('Choose a dedicated project directory, not a home or native agent directory')
-        command=argv(s['agent'],s.get('model',''),s.get('effort',''),mode)
+        command=argv(s['agent'],s.get('model',''),s.get('effort',''),mode,s['task'].get('id',s.get('task_id','default')))
+        report(json.dumps({'type':'agent.capabilities',**research_capabilities()}))
         report(json.dumps({'type':'agent.configuration','agent':s['agent'],'model':s.get('model') or 'CLI default','effort':s.get('effort') or 'CLI default'}))
         if os.name=='nt' and command[0].lower().endswith(('.cmd','.bat')):
             # Only the trusted installed CLI shim is passed to cmd; task text is stdin, never argv.

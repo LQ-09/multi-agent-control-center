@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from core import Store, clean
 from agents import run, version, cleanup
+from browser_tools import research_capabilities
 from routing import Routing
 from history import scan
 from providers import Providers, PRESETS
@@ -206,7 +207,7 @@ class Bridge:
                 'hosts':{'mac':{'host':platform.node(),'os':platform.system(),'agents':self.local_agents},'windows':self.info},
                 'mac_storage':{'managed_bytes':metadata_size(self.cache),'budget':1_000_000_000,'disk_free':shutil.disk_usage(self.cache).free},
                 'capabilities':{'shared_workspaces':self.config['mode']!='live' or bool((self.info or {}).get('shared_workspaces')),
-                    'live_profile':'read-only','general_dag':False,'automatic_verification':False,'mcp':False,'artifact_sync':'small-text-only'}}
+                    'live_profile':'read-only','general_dag':False,'automatic_verification':False,'research':(self.info or {}).get('research',{'browser':'unknown-worker-version'}) if self.config['mode']=='live' else research_capabilities(),'artifact_sync':'small-text-only'}}
         if op=='agent_status':
             if self.config['mode']=='demo':return {'hosts':{},'demo':True}
             hosts={}
