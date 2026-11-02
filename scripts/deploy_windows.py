@@ -15,6 +15,7 @@ import tempfile,shutil
 with tempfile.TemporaryDirectory() as tmp:
     stage=Path(tmp)/'backend';stage.mkdir()
     for src in (Path(__file__).resolve().parents[1]/'backend').glob('*.py'):shutil.copy2(src,stage/src.name)
+    shutil.copytree(Path(__file__).resolve().parents[1]/'backend/autoswarm',stage/'autoswarm',ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
     subprocess.run(['scp',*opts,'-r',str(stage),alias+':AgentControlCenter/'],check=True)
 if '--interactive-worker' in sys.argv[2:]:
     setup="$target = Join-Path $env:USERPROFILE 'AgentControlCenter'; & python (Join-Path $target 'backend/install_interactive_worker.py') --root (Join-Path $target 'state'); exit $LASTEXITCODE"

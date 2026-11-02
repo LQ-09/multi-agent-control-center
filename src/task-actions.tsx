@@ -3,17 +3,22 @@ import {Task,Step,Artifact,rpc} from './types';
 import {tr} from './i18n';
 export function TaskActions({task,steps,busy,control}:{task:Task;steps:Step[];busy:boolean;control:(t:Task,a:string)=>void}){
  const unsafe=steps.some(s=>s.lease!=null||s.status==='Running'||/unknown|unconfirmed/i.test(s.error||''));
+ const loginBusy=['requested','open','closing'].includes(task.login_state||'');
  const pending=['Queued','Running','Planning'].includes(task.status);
  const retry=steps.some(s=>['Blocked','Failed'].includes(s.status));
  const button=(label:string,action:string,disabled=false)=><button disabled={busy||disabled} onClick={()=>control(task,action)}>{tr(label)}</button>;
  if(task.archived)return <div className="controls">{button('Restore task','restore')}</div>;
  return <div className="controls">
+ {task.status==='Waiting for Login'&&<>
+ {button('Open login window','login_open',unsafe||loginBusy)}
+ {button('Logged in — continue','login_continue',unsafe||!['open','closed'].includes(task.login_state||''))}
+ </>}
  {['Draft','Paused'].includes(task.status)&&!retry&&button(task.status==='Paused'?'Continue task':'▶ Run task','run',unsafe)}
  {['Blocked','Failed','Paused'].includes(task.status)&&retry&&button('↻ Retry blocked step','retry',unsafe)}
  {pending&&button('Ⅱ Pause','pause')}
- {!['Completed','Cancelled'].includes(task.status)&&button('Cancel','cancel')}
- {!pending&&button('Restart all steps','restart',unsafe)}
- {!pending&&button('Delete to trash','archive',unsafe)}
+ {!['Completed','Cancelled'].includes(task.status)&&button('Cancel','cancel',loginBusy)}
+ {!pending&&button('Restart all steps','restart',unsafe||loginBusy)}
+ {!pending&&button('Delete to trash','archive',unsafe||loginBusy)}
  {unsafe&&<small>{tr('Waiting for the previous process to stop or be reconciled.')}</small>}
  </div>;
 }

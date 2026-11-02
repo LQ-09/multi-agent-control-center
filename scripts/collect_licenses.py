@@ -9,6 +9,7 @@ root=Path(__file__).resolve().parents[1]
 out=root/'build/runtime/acc-backend/licenses';out.mkdir(parents=True,exist_ok=True)
 shutil.copy2(root/'THIRD_PARTY_NOTICES.md',out/'THIRD_PARTY_NOTICES.md')
 shutil.copy2(root/'LICENSE',out/'PROJECT-LICENSE.txt')
+shutil.copy2(root/'backend/autoswarm/LICENSE',out/'AutoSwarm-LICENSE.txt')
 python_license=Path(sys.base_prefix)/'lib'/f'python{sys.version_info.major}.{sys.version_info.minor}'/'LICENSE.txt'
 if python_license.exists():shutil.copy2(python_license,out/'CPython-LICENSE.txt')
 for name in ['pyinstaller','certifi']:

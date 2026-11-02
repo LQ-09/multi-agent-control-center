@@ -1,0 +1,149 @@
+"""Muse Session Protocol, using the native host and its durable sessions."""
+import json
+import time
+import uuid
+
+from .records import SwarmError
+
+
+def command_id():
+    # MSP requires a UUIDv7 idempotency key; Python 3.10 has no uuid.uuid7.
+    bits = ((time.time_ns() // 1_000_000) << 80) | (uuid.uuid4().int & ((1 << 80) - 1))
+    bits = (bits & ~(0xf << 76)) | (7 << 76)
+    bits = (bits & ~(3 << 62)) | (2 << 62)
+    return str(uuid.UUID(int=bits))
+
+
+class Muse:
+    def __init__(self, native):
+        self.n = native
+        self.accepting = False
+        self.approvals = {}
+
+    def start(self):
+        self.n.stage("handshake")
+        self.n.request("initialize", {"clientInfo": {"name": "autoswarm", "version": "2.0.0.dev0"}, "capabilities": {"userInputDialogs": True}}, self.initialized)
+
+    def initialized(self, result):
+        if result.get("schema", {}).get("version") != 1:
+            raise SwarmError("native_protocol_error", "Unsupported Muse MSP schema version")
+        self.n.send({"method": "initialized"})
+        params = {"commandId": command_id()}
+        session = self.n.task.get("native_session_id")
+        if session:
+            params.update({"sessionId": session, "excludeItems": True})
+        else:
+            params["workspaceRoot"] = self.n.task["workspace"]
+        self.n.stage("session")
+        self.n.request("session/resume" if session else "session/start", params, self.started)
+
+    def started(self, result):
+        self.n.session(result["session"]["sessionId"])
+        self.accepting = True
+        options = self.n.task.get("native_options", {})
+
+        def effort(_):
+            self.accepted(_)
+            if options.get("effort"):
+                self.n.request("session/setReasoningEffort", {"commandId": command_id(), "sessionId": self.n.output.session_id, "reasoningEffort": options["effort"]}, self.configured)
+            else:
+                self.configured({})
+
+        if options.get("model"):
+            self.n.request("session/setModel", {"commandId": command_id(), "sessionId": self.n.output.session_id, "model": {"modelId": options["model"]}}, effort)
+        else:
+            effort({})
+
+    def configured(self, result):
+        self.accepted(result)
+        self.n.stage("execution")
+        self.n.continue_turn(self.n.initial_prompt())
+
+    def accepted(self, result):
+        if result.get("status") not in {None, "accepted"}:
+            raise SwarmError("native_selection_rejected", "Muse did not accept the requested model/effort: " + str(result))
+
+    def prompt(self, text):
+        self.n.request("turn/start", {"commandId": command_id(), "sessionId": self.n.output.session_id, "input": [{"type": "text", "text": text}]}, lambda value: setattr(self.n, "turn_id", value.get("turnId")))
+
+    def approval(self, params):
+        native_id = params["approvalId"]
+        requirement = params["currentRequirementId"]
+        key = native_id + ":" + json.dumps(requirement, sort_keys=True)
+        previous = self.approvals.get(native_id)
+        if previous and previous != key:
+            self.n.broker.withdraw(previous, "native_requirement_updated")
+        self.approvals[native_id] = key
+        choices = params.get("availableChoices", [])
+        scopes = ["once"] + (["session"] if any(item.get("decision") == "approvedForSession" and item.get("scope") == "session" for item in choices) else [])
+
+        def reply(value):
+            decision = "approvedForSession" if value["scope"] == "session" else "approved"
+            if value["decision"] == "deny":
+                # Native safety reviews can offer abort rather than denied.
+                decision = "denied" if any(item.get("decision") == "denied" for item in choices) else "abort"
+            choice = next((item for item in choices if item.get("decision") == decision and (value["decision"] == "deny" or item.get("scope") == value["scope"])), None)
+            if not choice:
+                raise SwarmError("unsupported_approval_scope", "Muse did not offer this approval decision")
+            body = {"sessionId": self.n.output.session_id, "commandId": command_id(), "approvalId": native_id, "requirementId": requirement, "choiceId": choice["choiceId"]}
+            if value.get("message") and choice.get("acceptsFeedback"):
+                body["feedback"] = value["message"]
+            result = self.n.command("approval/decide", body)
+            if result.get("status") not in {None, "accepted"}:
+                raise SwarmError("native_answer_rejected", "Muse did not admit this decision: " + str(result))
+
+        self.n.broker.request(key, self.n.output.session_id, params, reply, scopes=scopes)
+
+    def user_input(self, params):
+        native_id = "userInput:" + params["userInputId"]
+        def answer(value):
+            body = value["response"]
+            action = body.get("action", "answer")
+            command = {"commandId": command_id(), "sessionId": self.n.output.session_id, "userInputId": params["userInputId"]}
+            if action == "answer":
+                command["answers"] = body["answers"]
+            elif action == "clarify":
+                command["clarification"] = body["clarification"]
+            elif body.get("reason"):
+                command["reason"] = body["reason"]
+            result = self.n.command("userInput/" + action, command)
+            if result.get("status") != "accepted":
+                raise SwarmError("native_answer_rejected", "Muse did not admit this input: " + str(result))
+        self.n.broker.request(native_id, self.n.output.session_id, params, answer, interaction="muse-question",
+                              on_receive=lambda: self.n.send({"method": "userInput/engaged", "params": {"sessionId": self.n.output.session_id, "userInputId": params["userInputId"]}}))
+
+    def feed(self, event):
+        method, params = event.get("method"), event.get("params", {})
+        if params.get("sessionId") != self.n.output.session_id or not self.accepting:
+            if "id" in event:
+                self.n.unknown(event)
+            return
+        if method == "turn/started":
+            self.n.turn_id = params.get("turnId")
+        elif method == "item/completed" and params.get("item", {}).get("kind") == "agentMessage":
+            self.n.output.content = params["item"].get("text", "")
+        elif method == "turn/completed":
+            self.n.output.terminal = params.get("terminal") == "completed"
+            self.n.output.cancelled = params.get("terminal") == "cancelled"
+            self.n.output.error = str(params["error"]) if params.get("error") else None
+            self.n.output.finish_reason = params.get("terminal")
+            self.n.finish_turn()
+        elif method in {"userInput/request", "userInput/requested"}:
+            # This is a presentation receipt, not an answer. Duplicate replay
+            # after subscribe shares one durable userInputId record.
+            self.user_input(params)
+            if "id" in event:
+                self.n.send({"id": event["id"], "result": {}})
+        elif method == "userInput/settled":
+            self.n.broker.withdraw("userInput:" + str(params.get("userInputId")), "resolved_by_native")
+        elif method in {"approval/request", "approval/requested", "approval/updated"}:
+            if "id" in event:
+                self.n.send({"id": event["id"], "result": {}})
+            self.approval(params)
+        elif method == "approval/resolved":
+            previous = self.approvals.get(params.get("approvalId"))
+            if previous:
+                self.n.broker.withdraw(previous, "resolved_by_native")
+        elif "id" in event or (isinstance(method, str) and method.startswith(("userInput/", "approval/"))):
+            self.n.unknown(event)
+

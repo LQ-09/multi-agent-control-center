@@ -31,6 +31,20 @@ class ResultContractTests(unittest.TestCase):
             store.control(ident,'run',1);step=store.claim('local')
             store.finish(step['id'],step['attempt'],'<acc_result>not JSON</acc_result>')
             self.assertEqual(store.get_task(ident)['status'],'Failed');self.assertIsNone(store.claim('local'));store.close()
+    def test_missing_closer_preserves_negative_outcome_and_evidence(self):
+        for outcome,expected in [('blocked','Blocked'),('failed','Failed')]:
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as root:
+                text=result(outcome,'Disk query denied.','PermissionDenied; exit code 1.').removesuffix('</acc_result>')
+                self.assertEqual(result_contract(text,required=True)['details'],'PermissionDenied; exit code 1.')
+                store=Store(root,host='local')
+                ident=store.create(dict(key='one',prompt='test',workspace=root,acceptance='Evidence'))['id']
+                store.control(ident,'run',1);step=store.claim('local')
+                store.finish(step['id'],step['attempt'],text)
+                self.assertEqual(store.get_task(ident)['status'],expected)
+                self.assertIsNone(store.claim('local'))
+                self.assertEqual(len(store.snapshot()['artifacts']),1)
+                store.close()
+
     def test_write_mode_scope_and_persistence(self):
         with tempfile.TemporaryDirectory() as root:
             store=Store(root,host='local')
@@ -55,3 +69,52 @@ class ResultContractTests(unittest.TestCase):
             for path in ['D:/AgentState/codex','D:/AgentState/codex/sessions','D:/AgentState']:
                 with self.assertRaises(ValueError):validate_execution_workspace(path)
             validate_execution_workspace('D:/Projects/acc')
+
+class ReviewerLoopTests(unittest.TestCase):
+    def test_review_returns_feedback_then_completes(self):
+        with tempfile.TemporaryDirectory() as root:
+            store=Store(root,host='local')
+            ident=store.create(dict(key='review',prompt='Implement',workspace=root,acceptance='Tests pass'))['id']
+            store.control(ident,'run',1)
+            def finish(status='succeeded',details='Tests pass'):
+                step=store.claim('local');self.assertIsNotNone(step)
+                store.finish(step['id'],step['attempt'],result(status,details=details))
+                return step
+            finish();finish();finish('failed','Fix the incorrect total and rerun the test.')
+            execute=store.claim('local')
+            self.assertEqual(execute['role'],'Execute')
+            self.assertIn('Fix the incorrect total',execute['context'][-1]['output'])
+            store.finish(execute['id'],execute['attempt'],result())
+            finish()
+            self.assertEqual(store.get_task(ident)['status'],'Completed')
+            self.assertEqual(store.get_task(ident)['review_rounds'],1)
+            self.assertEqual(store.db.execute('SELECT count(*) FROM artifacts').fetchone()[0],5)
+            store.close()
+
+    def test_rework_limit_and_external_block(self):
+        for outcome in ('failed','blocked'):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as root:
+                store=Store(root,host='local')
+                ident=store.create(dict(key='loop',prompt='Implement',workspace=root,acceptance='Tests pass'))['id']
+                store.control(ident,'run',1)
+                for index in range(9 if outcome=='failed' else 3):
+                    step=store.claim('local');self.assertIsNotNone(step)
+                    value=outcome if step['role']=='Review' else 'succeeded'
+                    store.finish(step['id'],step['attempt'],result(value,details='Fix the failing test.' if value=='failed' else 'Evidence or external obstacle.'))
+                self.assertEqual(store.get_task(ident)['status'],'Blocked')
+                self.assertIsNone(store.claim('local'))
+                store.close()
+
+    def test_legacy_waiting_task_is_sent_back_to_reviewer(self):
+        with tempfile.TemporaryDirectory() as root:
+            store=Store(root,host='local')
+            ident=store.create(dict(key='legacy',prompt='Implement',workspace=root,acceptance='Tests pass'))['id']
+            store.control(ident,'run',1)
+            for _ in range(3):
+                step=store.claim('local');store.finish(step['id'],step['attempt'],result())
+            store.db.execute("UPDATE tasks SET status='Verifying' WHERE id=?",(ident,));store.db.commit()
+            store.control(ident,'review',store.get_task(ident)['revision'])
+            step=store.claim('local');self.assertEqual(step['role'],'Review')
+            store.finish(step['id'],step['attempt'],result())
+            self.assertEqual(store.get_task(ident)['status'],'Completed')
+            store.close()

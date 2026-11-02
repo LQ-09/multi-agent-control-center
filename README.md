@@ -4,7 +4,23 @@
 
 Tauri 2 · React · TypeScript · Python · SQLite · MIT
 
-> **Preview software.** The current workflow is read-only: Codex can inspect files, Claude Code is tool-free, and API models receive text only. This is not an autonomous coding agent, a trading system, or a production multi-user service. See [limitations](#current-limits) before relying on results.
+> **Preview software.** Codex defaults to read-only with explicit per-task workspace-write for Execute; Claude Code has web research tools and API models receive text only. This is not an autonomous coding agent, a trading system, or a production multi-user service. See [limitations](#current-limits) before relying on results.
+
+## AutoSwarm and adaptive teams (0.13.0)
+
+New tasks default to **Adaptive team (AutoSwarm)**. The owner chooses a task-specific ordered list of assignments from the three available agent configurations, reusing configurations when useful. A simple task can use one delivery assignment; larger tasks can have multiple executors and optional independent reviews. The final delivery must explicitly accept the evidence. This release executes assignments sequentially on one host; parallel browser ownership and arbitrary cross-host task graphs are not implemented.
+
+Codex and Claude now run through the pinned vendored AutoSwarm runtime. Retry/rework can resume the native session; API-only legacy steps retain their text adapter. Existing tasks retain their fixed workflow. Automatic Windows routing and single-host profiles support adaptive tasks; manual split-host adaptive tasks are rejected. Update the Windows worker before creating adaptive tasks remotely.
+
+The browser runs headless with a persistent ACC-only profile. A blocked login task can open a visible window on its execution host, then resume after the user closes/continues it. This does not import ordinary browser cookies. Manual Windows login needs the existing interactive worker and a logged-in desktop.
+
+Windows update: pause outstanding tasks and quit ACC, extract this release separately, then run `scripts/update_windows.ps1`. It uses the registered worker's Python and state paths, retains a code/database backup, preserves native credentials, and prints real Codex/Claude invocation-and-resume probe results. See [0.13.0 verification and upgrade](docs/autoswarm-upgrade.md).
+
+## Shared projects (0.12)
+
+Register existing Git projects in **Projects**, then select one when creating a task. ACC creates an isolated task worktree, attaches pinned shared documents and file-storage rules to every agent, and checks source versions across handoffs and acceptance. Original project folders and native agent sessions stay in place. Explicit Codex Execute workspace-write remains supported; Claude and API models receive the shared context as text. [Setup, guarantees and boundaries](docs/shared-workspaces.md).
+
+Windows-first execution stores these worktrees on Windows. Mac fallback requires an explicitly paired existing clone containing the cached remote commit. A global Mac path alone no longer authorizes offline execution. Existing tasks are not migrated. The remote backend must be upgraded separately.
 
 ## Install
 
@@ -19,6 +35,8 @@ The build is ad-hoc signed, **not Apple Developer ID signed or notarized**. macO
 Starting with **0.4.0**, open **Settings → App updates → Check for updates → Install and restart**. The app downloads the signed macOS update from this repository, verifies its signature and signed version, replaces the application and restarts. Settings, databases and native agent sessions remain in their existing locations.
 
 If you currently have 0.3.x or older, quit it and install the 0.4.0 `.pkg` once over the existing app. **Do not uninstall or delete application data.** Later versions can use the in-app updater. Pause/cancel pending work first; updating is refused for active/queued/blocked tasks or an unknown remote state. A failed check/download can be retried. macOS may ask for permission to replace an app in Applications.
+
+From **0.12.2**, enable **Settings → App updates → Automatic updates** to check immediately and hourly, then install and restart when tasks are idle. This preference is off by default and persists across restarts. Active tasks or an unavailable authority postpone installation.
 
 The updater covers the desktop and its bundled local backend. Separately deployed SSH workers are not automatically upgraded. Releases remain preview software even when published on the updater's default GitHub release channel.
 
@@ -35,7 +53,7 @@ Language changes affect interface labels, task states and common messages. Your 
 3. Choose **New task**. Enter a goal, acceptance criteria and an existing absolute workspace directory on the selected execution host.
 4. Choose an agent for **Planner**, **Executor** and **Reviewer**. You may use the same agent for all three.
 5. Create the draft, then click **Run**. Inspect the attributed timeline and handoffs.
-6. The task stops at **Verifying**. Click **Accept result** only after checking the evidence yourself.
+6. The Reviewer accepts the evidence and completes the task automatically, or returns concrete fixes to Execute. Up to three revision rounds run automatically; external blockers or exhausted revisions need your input. Legacy Verifying tasks can be sent back to the reviewer.
 
 For a no-cost walkthrough, select **Demo** from the environment menu. Demo uses simulated agents and a separate local database; it never makes model requests or imports native history. Local mode is real execution, not a demo.
 
@@ -64,7 +82,7 @@ The top-right theme selector offers **Light (black on white)**, **Dark (white on
 | Adapter | Authentication | Capabilities in this release |
 |---|---|---|
 | Codex CLI | Your existing CLI login | Read-only workspace analysis; structured CLI output |
-| Claude Code CLI | Your existing CLI login | Text reasoning; tools and MCP explicitly disabled |
+| Claude Code CLI | Your existing CLI login | WebSearch/WebFetch; optional ACC browser MCP |
 | DeepSeek | Session API key or `DEEPSEEK_API_KEY` | Text planning, analysis and review via Chat Completions |
 | OpenAI-compatible API | Session key or a named host environment variable | Text responses; exact model ID and base URL are configurable |
 | Ollama / compatible local server | Usually no key for local Ollama | Text responses from a model you already installed; no automatic model downloads |
@@ -92,7 +110,7 @@ For SSH execution, perform installation and login on the **remote computer under
 
 If Hosts says the command was not found, verify its installation location and restart the app. Standard macOS Homebrew, user-local and nvm paths are searched. A nonstandard executable path currently has no manual picker in the UI. Shell-only environment overrides and custom authentication directories are not automatically imported from an interactive terminal.
 
-**Current boundary:** these adapters start bounded task runs. They do not attach to an already-open terminal conversation or resume native historical sessions. Codex uses read-only tools; Claude Code's tools are disabled in this preview.
+**Current boundary:** these adapters start bounded task runs. They do not attach to an already-open terminal conversation or resume native historical sessions. Codex uses read-only tools; Claude Code has WebSearch/WebFetch and optional ACC browser tools, without shell or file-edit tools.
 
 ### 接入自己的 Codex / Claude Code（中文）
 
@@ -101,7 +119,7 @@ If Hosts says the command was not found, verify its installation location and re
 - 安装后完全退出并重开本应用，在「主机」查看版本。检测到版本不代表登录或额度一定正常。
 - 新建任务时给规划、执行、审查角色选择 Codex 或 Claude Code，点击运行后由应用后台启动，不需要一直开着终端。
 - 远程任务需要在远程主机用 SSH 登录账户安装和登录；Mac 的登录不会自动传到 Windows。单机使用无需增加环境。
-- 当前不会接管已有终端对话或恢复原生历史会话；Codex 只读，Claude Code 暂不启用工具。DeepSeek 等 API 服务商才需要在「模型服务商」里配置地址、模型和密钥。
+- 当前不会接管已有终端对话或恢复原生历史会话；Codex 只读，Claude Code 支持网页搜索和抓取，可接入 ACC 专用浏览器。DeepSeek 等 API 服务商才需要在「模型服务商」里配置地址、模型和密钥。
 
 ### Connect DeepSeek
 
@@ -243,7 +261,7 @@ Release build and `.pkg` instructions are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Current limits
 
-Fixed Plan → Execute → Review workflow; explicit human acceptance; read-only CLI/tool profiles; text-only APIs; one active authority at a time. No arbitrary planner-generated DAGs, native-session resume, arbitrary tool execution, MCP context server, unattended durable worker service, full offline task queue, Git worktree automation, large artifact transfer, multi-user ACLs, comprehensive backup/restore or notarization yet.
+Fixed Plan → Execute → Review workflow; automatic reviewer acceptance with up to three revision rounds; read-only CLI/tool profiles; text-only APIs; one active authority at a time. No arbitrary planner-generated DAGs, native-session resume, arbitrary tool execution, MCP context server, unattended durable worker service, full offline task queue, Git worktree automation, large artifact transfer, multi-user ACLs, comprehensive backup/restore or notarization yet.
 
 Native history imports are opt-in and bounded (100 files / 4 MB per scan); parsing covers basic JSONL formats, not every agent/version or desktop database. Same-size in-place rewrites and cross-source deduplication need further work. Imported records are limited in the UI; it is not a complete global search engine.
 
@@ -260,7 +278,7 @@ Display tests also check bilingual rendered settings, preference persistence, fo
 
 ### Task input, dictation and quota windows (0.7)
 
-Describe the task; the title is optional and derives from the first line. Leave acceptance criteria blank to let the planning agent generate checkable criteria. These are stored before execution and passed to the executor/reviewer. A missing or invalid criteria block fails planning; final completion still requires your explicit acceptance. Existing manually supplied criteria are preserved. Remote workers need the matching 0.7 backend for automatic criteria.
+Describe the task; the title is optional and derives from the first line. Leave acceptance criteria blank to let the planning agent generate checkable criteria. These are stored before execution and passed to the executor/reviewer. A missing or invalid criteria block fails planning; the Reviewer completes accepted work automatically and returns fixable failures to Execute. Existing manually supplied criteria are preserved. Remote workers need the matching 0.7 backend for automatic criteria.
 
 The last successfully used execution directory is remembered separately for local/demo and each SSH alias + storage root. Local first use inherits the directory in Settings. A remote directory must be set once on its host; no Mac path is substituted. Switching environments never copies workspaces.
 
@@ -411,3 +429,13 @@ The [workspace/context audit and proposal](docs/workspace-context-proposal.md)
 distinguishes current path fields and text handoffs from the proposed project
 registry, isolated worktrees, automatic rule injection, shared skills and MCP.
 That proposal is not a shipped workspace manager.
+
+## Web research and dynamic websites
+
+Codex uses live web search in all roles, independently of project write permission. Claude has WebSearch/WebFetch and an allowlist of browser interaction tools; shell and file-edit tools remain disabled. Text API providers still have no tools.
+
+Install Node.js 18+ and Microsoft Edge on the Windows execution host (Chrome on macOS/Linux), then run `python backend/install_browser.py` there. This installs pinned Playwright MCP 0.0.84 under `~/AgentControlCenter/browser-runtime`, without editing native Codex/Claude configuration or importing personal browser profiles. Reconnect ACC after deploying the updated backend. Each task gets a separate persistent browser profile, reused by its sequential roles and retries. Browser data/evidence stays on that execution host.
+
+The capability event distinguishes missing runtime from configured-but-unverified; it does not prove browser launch, login or site connectivity. Validate with a real task that opens a public page, uses a query/date filter, and has its reviewer independently reopen the source. Login/CAPTCHA/site-permission blockers require manual resolution and explicit retry. Searching and filtering are allowed; bookings, payments and external messages are not authorized by a research task. Prices must include exact dates, occupancy, room, currency, observed time and source.
+
+This setup requires a logged-in Windows interactive worker. Updating the Mac desktop alone does not update that worker. The browser tools are not a security sandbox; research-only actions are also enforced by task instructions.

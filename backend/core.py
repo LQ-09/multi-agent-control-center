@@ -14,7 +14,7 @@ from agent_settings import DEFAULTS, defaults, selection
 from pathlib import Path, PureWindowsPath, PurePosixPath
 from datetime import datetime, timezone
 
-STATES = {'Draft','Queued','Planning','Running','Waiting for Dependency','Waiting for Approval','Paused','Blocked','Failed','Verifying','Completed','Cancelled'}
+STATES = {'Draft','Queued','Planning','Running','Waiting for Dependency','Waiting for Approval','Waiting for Login','Paused','Blocked','Failed','Verifying','Completed','Cancelled'}
 MAX_DB = 80_000_000
 MAX_LOG = 8_000
 
@@ -50,13 +50,21 @@ def validate_execution_workspace(workspace):
 
 def result_contract(output, required=False):
     """Parse the final handoff, never infer success from a CLI exit code."""
-    matches=re.findall(r'<acc_result>(.*?)</acc_result>', output, re.S)
-    if not matches:
+    opening='<acc_result>'; closing='</acc_result>'
+    if opening not in output:
         if required or '<acc_result' in output: raise ValueError('Missing structured agent result; outcome is unverified.')
         return None
-    if len(matches)!=1: raise ValueError('Expected exactly one structured agent result.')
-    try: result=json.loads(matches[0])
+    if output.count(opening)!=1 or output.count(closing)>1:
+        raise ValueError('Expected exactly one structured agent result.')
+    payload=output.split(opening,1)[1]
+    missing_close=closing not in payload
+    if not missing_close:payload=payload.split(closing,1)[0]
+    try: result=json.loads(payload)
     except (ValueError,TypeError): raise ValueError('Invalid structured agent result JSON.')
+    # Preserve a complete negative outcome when only the wrapper was omitted.
+    # Never promote an incomplete success handoff or accept truncated JSON.
+    if missing_close and (not isinstance(result,dict) or result.get('status') not in ('blocked','failed')):
+        raise ValueError('Missing structured agent result closing tag; outcome is unverified.')
     if not isinstance(result,dict) or result.get('status') not in ('succeeded','blocked','failed'):
         raise ValueError('Invalid structured agent result status.')
     summary=result.get('summary'); details=result.get('details')
@@ -85,269 +93,36 @@ class Store:
             timestamp_utc TEXT NOT NULL, event_type TEXT NOT NULL, status TEXT NOT NULL, input_summary TEXT NOT NULL,
             output_summary TEXT NOT NULL, artifact_references TEXT NOT NULL DEFAULT '[]', source_log_reference TEXT,
             UNIQUE(event_id));
-        CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), step_id TEXT,
-            name TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL, created TEXT NOT NULL, content TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS commands(key TEXT PRIMARY KEY, request_hash TEXT NOT NULL, result TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS history(id TEXT PRIMARY KEY, host TEXT NOT NULL, agent TEXT NOT NULL, session TEXT,
-            timestamp TEXT NOT NULL, summary TEXT NOT NULL, source TEXT NOT NULL, offset INTEGER NOT NULL, hash TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS cursors(source TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, offset INTEGER NOT NULL);
-        CREATE INDEX IF NOT EXISTS event_task ON events(task_id,sequence_number);
-        CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'Events are append-only'); END;
-        CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'Events are append-only'); END;
-        ''')
-        self.db.execute('CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY, value TEXT NOT NULL)')
-        columns={r[1] for r in self.db.execute('PRAGMA table_info(steps)')}
-        for column in ('model','effort'):
-            if column not in columns:self.db.execute(f"ALTER TABLE steps ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
-        task_columns={r[1] for r in self.db.execute('PRAGMA table_info(tasks)')}
-        if 'execution_mode' not in task_columns:self.db.execute("ALTER TABLE tasks ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'read-only'")
-        if 'archived' not in task_columns:self.db.execute("ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
-        self.db.commit()
-    @contextmanager
-    def transaction(self):
-        with self.lock:
-            self.db.execute("BEGIN IMMEDIATE")
-            try:
-                yield
-                self.db.commit()
-            except BaseException:
-                self.db.rollback()
-                raise
-    def close(self): self.db.close()
-    def size(self): return sum(p.stat().st_size for p in self.root.glob('*') if p.is_file())
-    def reserve(self):
-        # Leave headroom for cancellation and final control records. Never evict unsynced records.
-        if self.size() > MAX_DB: raise ValueError('Prototype metadata quota reached; new work is blocked. Export/retain data before cleanup.')
-    def event(self, task, kind, message, step=None, status=None, event_id=None):
-        row = self.db.execute('SELECT status FROM tasks WHERE id=?',(task,)).fetchone() if task else None
-        self.db.execute('INSERT OR IGNORE INTO events(event_id,task_id,step_id,agent_type,host_id,native_session_id,timestamp_utc,event_type,status,input_summary,output_summary) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
-            (event_id or uid(),task,step['id'] if step else None,step['agent'] if step else 'system',step['host'] if step else (self.host or 'windows'),step.get('session') if step else None,now(),kind,status or (row['status'] if row else 'Imported'),'',clean(message,MAX_LOG)))
-    def get_task(self, ident):
-        row=self.db.execute('SELECT * FROM tasks WHERE id=?',(ident,)).fetchone()
-        if row is None: raise ValueError('Task not found')
-        return dict(row)
-    def create(self, data):
-        title=str(data.get('title','')).strip(); prompt=str(data.get('prompt','')).strip()
-        workspace=str(data.get('workspace','')).strip(); acceptance=str(data.get('acceptance','')).strip()
-        if not prompt: raise ValueError('Task brief is required.')
-        title=title or prompt.splitlines()[0][:80]
-        if len(prompt)>12000 or len(title)>160 or len(acceptance)>2000: raise ValueError('Task input is too large.')
-        if not workspace or any(c in workspace for c in '\r\n\x00'): raise ValueError('An explicit execution workspace is required.')
-        saved=self.agent_defaults(); agents=data.get('agents',saved['roles'])
-        if len(agents)!=3 or any(not isinstance(a,str) or (a not in ('codex','claude') and not re.fullmatch(r'api:[a-z][a-z0-9_-]{0,39}',a)) for a in agents): raise ValueError('Choose supported agents for all three roles.')
-        execution_mode=data.get('execution_mode','read-only')
-        if execution_mode not in ('read-only','workspace-write'): raise ValueError('Unsupported execution mode')
-        if execution_mode=='workspace-write':
-            if agents[1]!='codex': raise ValueError('Workspace write currently requires Codex as executor')
-            validate_execution_workspace(workspace)
-        options=data.get('agent_options')
-        if options is None:options=[saved.get(a,{'model':'','effort':''}) for a in agents]
-        if not isinstance(options,list) or len(options)!=3:raise ValueError('Provide model settings for all three roles')
-        options=[selection(a,o) for a,o in zip(agents,options)]
-        key=data.get('key'); fingerprint=digest(json.dumps(data,sort_keys=True))
-        if not key: raise ValueError('Idempotency key required')
-        with self.transaction():
-            previous=self.db.execute('SELECT * FROM commands WHERE key=?',(key,)).fetchone()
-            if previous:
-                if previous['request_hash']!=fingerprint: raise ValueError('Idempotency key payload conflict')
-                return json.loads(previous['result'])
-            self.reserve(); ident=uid()
-            self.db.execute('INSERT INTO tasks(id,title,prompt,status,created,workspace,acceptance,demo) VALUES(?,?,?,?,?,?,?,?)',
-                (ident,clean(title),clean(prompt),'Draft',now(),workspace,clean(acceptance),int(self.demo)))
-            self.db.execute('UPDATE tasks SET execution_mode=? WHERE id=?',(execution_mode,ident))
-            preferred=self.host or ('windows' if data.get('routing')=='windows-first' else None)
-            for pos,(role,host) in enumerate([('Plan',preferred or 'mac'),('Execute',preferred or 'windows'),('Review',preferred or 'mac')]):
-                self.db.execute('INSERT INTO steps(id,task_id,position,role,agent,host,status,model,effort) VALUES(?,?,?,?,?,?,?,?,?)',(uid(),ident,pos,role,agents[pos],host,'Pending',options[pos]['model'],options[pos]['effort']))
-            self.event(ident,'task.created',f'Task saved. Execution scope: {execution_mode}; planning and review remain read-only.')
-            result={'id':ident}; self.db.execute('INSERT INTO commands VALUES(?,?,?)',(key,fingerprint,json.dumps(result)))
-            return result
-    def agent_defaults(self):
-        with self.lock:
-            row=self.db.execute("SELECT value FROM preferences WHERE key='agent_defaults'").fetchone()
-            return defaults(json.loads(row['value']) if row else DEFAULTS)
-    def save_agent_defaults(self, data):
-        value=defaults(data)
-        with self.transaction():
-            self.db.execute("INSERT OR REPLACE INTO preferences VALUES('agent_defaults',?)",(json.dumps(value),))
-        return value
-    def control(self, ident, action, revision):
-        with self.transaction():
-            t=self.get_task(ident)
-            if t['revision']!=revision: raise ValueError('Task changed; refresh before applying this action.')
-            active=self.db.execute("SELECT * FROM steps WHERE task_id=? AND status='Running'",(ident,)).fetchone()
-            if t['archived'] and action!='restore': raise ValueError('Restore this task before running it.')
-            if action in ('restart','archive'):
-                unsafe=self.db.execute("SELECT * FROM steps WHERE task_id=? AND (lease IS NOT NULL OR status='Running' OR lower(COALESCE(error,'')) LIKE '%unknown%' OR lower(COALESCE(error,'')) LIKE '%unconfirmed%')",(ident,)).fetchone()
-                if unsafe or t['status'] in ('Queued','Running','Planning'): raise ValueError('Pause and reconcile active or unknown execution before restarting or deleting.')
-            if action in ('archive','restore'):
-                self.db.execute('UPDATE tasks SET archived=?,revision=revision+1 WHERE id=?',(int(action=='archive'),ident))
-                self.event(ident,'task.'+action,'Task moved to trash; history retained.' if action=='archive' else 'Task restored.')
-                return {'status':t['status'],'archived':action=='archive'}
-            if action=='restart':
-                self.db.execute("UPDATE steps SET status='Pending',attempt=NULL,session=NULL,lease=NULL,error=NULL,output='' WHERE task_id=?",(ident,))
-                status='Queued'
-            elif action=='run':
-                if t['status'] not in ('Draft','Paused'): raise ValueError('Only draft or paused tasks can be started.')
-                if active: raise ValueError('Previous process is still stopping.')
-                if self.db.execute("SELECT 1 FROM steps WHERE task_id=? AND status IN ('Failed','Blocked','Cancelled')",(ident,)).fetchone(): raise ValueError('Use retry or restart for interrupted steps.')
-                status='Queued'
-            elif action=='retry':
-                if t['status'] not in ('Blocked','Failed','Paused'): raise ValueError('Only blocked, failed or paused tasks can be retried.')
-                if active: raise ValueError('Previous process is still stopping.')
-                step=self.db.execute("SELECT * FROM steps WHERE task_id=? AND status!='Succeeded' ORDER BY position LIMIT 1",(ident,)).fetchone()
-                if not step or step['status'] not in ('Blocked','Failed'): raise ValueError('No failed step to retry.')
-                if step['lease'] is not None or any(x in (step['error'] or '').lower() for x in ('unknown','unconfirmed')):
-                    raise ValueError('Previous execution outcome is unknown; reconcile the process before retrying.')
-                self.event(ident,'step.retry_requested','User requested a new attempt; previous output remains in history and artifacts.',dict(step),'Queued')
-                self.db.execute("UPDATE steps SET status='Pending',attempt=NULL,session=NULL,lease=NULL,error=NULL,output='' WHERE id=?",(step['id'],))
-                status='Queued'
-            elif action in ('pause','cancel'):
-                if t['status'] in ('Completed','Cancelled'): raise ValueError('Task is terminal.')
-                status='Blocked' if active else ('Paused' if action=='pause' else 'Cancelled')
-                if active: self.db.execute('UPDATE steps SET error=? WHERE id=?',(action+' requested',active['id']))
-            elif action=='accept':
-                if t['status']!='Verifying': raise ValueError('All agent steps must finish before acceptance.')
-                status='Completed'
-                self.event(ident,'verification.accepted','User explicitly accepted the current read-only result against: '+t['acceptance'])
-            else: raise ValueError('Unsupported action')
-            self.db.execute('UPDATE tasks SET status=?,revision=revision+1 WHERE id=?',(status,ident))
-            self.event(ident,'task.'+action,'Stop requested; awaiting worker acknowledgment.' if active else 'Task '+status.lower(),status=status)
-            return {'status':status}
-    def claim(self, host):
-        if host not in ((self.host,) if self.host else ('mac','windows')): raise ValueError('Unknown host')
-        with self.transaction():
-            self.reserve()
-            # A fixed, inspectable linear DAG in the prototype. General plan DAGs remain a later phase.
-            s=self.db.execute("""SELECT s.* FROM steps s JOIN tasks t ON t.id=s.task_id
-            WHERE t.archived=0 AND s.host=? AND s.status='Pending' AND t.status IN ('Queued','Running','Planning')
-            AND NOT EXISTS (SELECT 1 FROM steps p WHERE p.task_id=s.task_id AND p.position<s.position AND p.status!='Succeeded')
-            ORDER BY t.created,s.position LIMIT 1""",(host,)).fetchone()
-            if not s: return None
-            s=dict(s); s['attempt']=uid(); s['lease']=time.time()+45; s['status']='Running'
-            self.db.execute("UPDATE steps SET status='Running',attempt=?,lease=?,error=NULL WHERE id=?",(s['attempt'],s['lease'],s['id']))
-            status='Planning' if s['position']==0 else 'Running'
-            self.db.execute('UPDATE tasks SET status=?,revision=revision+1 WHERE id=?',(status,s['task_id']))
-            self.event(s['task_id'],'step.started',f"{s['role']} started on {host}; {s['agent']} {self.get_task(s['task_id'])['execution_mode'] if s['role']=='Execute' else 'read-only'} profile.",s,status)
-            t=self.get_task(s['task_id']); s['task']=t
-            s['context']=[dict(r) for r in self.db.execute("SELECT role,output FROM steps WHERE task_id=? AND status='Succeeded' ORDER BY position",(s['task_id'],))]
-            return s
-    def check_attempt(self, step_id, attempt):
-        s=self.db.execute('SELECT * FROM steps WHERE id=?',(step_id,)).fetchone()
-        if not s or s['attempt']!=attempt or s['status']!='Running': raise ValueError('Stale or unknown attempt')
-        return dict(s)
-    def pulse(self, step_id, attempt):
-        with self.transaction():
-            s=self.check_attempt(step_id,attempt)
-            if s['lease'] < time.time(): raise ValueError('Execution lease expired; stop and reconcile')
-            self.db.execute('UPDATE steps SET lease=? WHERE id=?',(time.time()+45,step_id))
-            return {'stop':s['error'] if s['error'] in ('pause requested','cancel requested') else None}
-    def record(self, step_id, attempt, message, key, session=None):
-        with self.transaction():
-            s=self.check_attempt(step_id,attempt)
-            if s['lease']<time.time(): raise ValueError('Stale lease')
-            self.reserve()
-            if session:
-                self.db.execute('UPDATE steps SET session=? WHERE id=?',(clean(session,160),step_id)); s['session']=clean(session,160)
-            self.event(s['task_id'],'agent.output',message,s,event_id=key)
-            return True
-    def finish(self, step_id, attempt, output, error=None, stopped=None):
-        with self.transaction():
-            s=self.check_attempt(step_id,attempt)
-            if s['lease']<time.time(): raise ValueError('Expired attempt cannot publish a result')
-            if s['error'] in ('pause requested','cancel requested') and not stopped: stopped=s['error'].split()[0]
-            result=None; summary=''
-            if not error and not stopped:
-                try: result=result_contract(output)
-                except ValueError as exc: error=str(exc)
-            if result:
-                summary=result['summary']
-                if result['status']!='succeeded': error=summary
-            if stopped:
-                status='Paused' if stopped=='pause' else 'Cancelled'; step_status='Pending' if stopped=='pause' else 'Cancelled'
-            elif error:
-                status='Blocked' if result and result['status']=='blocked' else 'Failed'; step_status=status
-            else:
-                step_status='Succeeded'; status='Verifying' if s['position']==2 else 'Queued'
-                content=clean(output,24000)
-                if s['position']==0 and not self.get_task(s['task_id'])['acceptance']:
-                    match=re.search(r'<acceptance_criteria>(.*?)</acceptance_criteria>', content, re.S)
-                    criteria=match.group(1).strip() if match else ''
-                    if not criteria or len(criteria)>2000:
-                        raise ValueError('Planner must provide acceptance_criteria (1–2000 characters); execution has not been authorized by a valid plan.')
-                    self.db.execute('UPDATE tasks SET acceptance=? WHERE id=?',(criteria,s['task_id']))
-                    self.event(s['task_id'],'acceptance.planned',criteria,s)
-                if not content.strip(): raise ValueError('Empty output cannot satisfy the step contract')
-            content=clean(output,24000)
-            if content.strip() and not stopped:
-                self.db.execute('INSERT INTO artifacts VALUES(?,?,?,?,?,?,?,?)',(uid(),s['task_id'],step_id,s['role'].lower()+'-handoff.md',digest(content),len(content.encode()),now(),content))
-            self.db.execute('UPDATE steps SET status=?,output=?,error=?,lease=NULL WHERE id=?',(step_status,content,clean(error or '',2000),step_id))
-            self.db.execute('UPDATE tasks SET status=?,revision=revision+1 WHERE id=?',(status,s['task_id']))
-            summary=summary or (error if error else 'Stopped at user request.' if stopped else next((line.strip() for line in output.splitlines() if line.strip()),'Result received.'))
-            self.event(s['task_id'],'step.finished',clean(summary,160),s,status)
-            return {'status':status}
-    def expire(self):
-        with self.transaction():
-            for row in self.db.execute("SELECT * FROM steps WHERE status='Running' AND lease<?",(time.time(),)).fetchall():
-                s=dict(row)
-                self.db.execute("UPDATE steps SET status='Blocked',error='Lease expired; execution outcome unknown' WHERE id=?",(s['id'],))
-                self.db.execute("UPDATE tasks SET status='Blocked',revision=revision+1 WHERE id=?",(s['task_id'],))
-                self.event(s['task_id'],'lease.expired','No automatic retry: reconcile the previous process before further work.',s,'Blocked')
-    def snapshot(self):
-        self.expire()
-        with self.lock:
-            return {'agent_defaults':self.agent_defaults(),'tasks':[dict(r) for r in self.db.execute('SELECT * FROM tasks ORDER BY created DESC LIMIT 200')],
-                'steps':[dict(r) for r in self.db.execute('SELECT * FROM steps ORDER BY position LIMIT 1000')],
-                'events':[dict(r) for r in self.db.execute('SELECT * FROM events ORDER BY sequence_number DESC LIMIT 160')][::-1],
-                'artifacts':self.latest_artifacts(),
-                'storage':{'metadata_bytes':self.size(),'metadata_limit':MAX_DB,'disk_free':shutil.disk_usage(self.root).free,'root':str(self.root)},
-                'history':[dict(r) for r in self.db.execute('SELECT * FROM history ORDER BY timestamp DESC LIMIT 100')]}
-    def latest_artifacts(self):
-        rows=self.db.execute('''SELECT a.*,t.title AS task_title,
-            (SELECT count(*) FROM artifacts v WHERE v.task_id=a.task_id AND v.step_id IS a.step_id AND v.name=a.name) AS versions
-            FROM artifacts a JOIN tasks t ON t.id=a.task_id WHERE t.archived=0
-            AND NOT EXISTS (SELECT 1 FROM artifacts n WHERE n.task_id=a.task_id AND n.step_id IS a.step_id AND n.name=a.name
-                AND (n.created>a.created OR (n.created=a.created AND n.rowid>a.rowid)))
-            ORDER BY a.created DESC LIMIT 200''')
-        result=[]
-        for row in rows:
-            item=dict(row); content=item.pop('content')
-            try: parsed=result_contract(content)
-            except ValueError: parsed=None
-            item['summary']=parsed['summary'] if parsed else next((x.strip()[:160] for x in content.splitlines() if x.strip()),'')
-            result.append(item)
-        return result
-    def artifact_versions(self, ident):
-        with self.lock:
-            a=self.artifact(ident)
-            return [dict(r) for r in self.db.execute('SELECT id,task_id,step_id,name,sha256,size,created FROM artifacts WHERE task_id=? AND step_id IS ? AND name=? ORDER BY created DESC,rowid DESC LIMIT 100',(a['task_id'],a['step_id'],a['name']))]
-    def artifact(self, ident):
-        with self.lock:
-            row=self.db.execute('SELECT * FROM artifacts WHERE id=?',(ident,)).fetchone()
-            if not row: raise ValueError('Artifact not found')
-            return dict(row)
-    def import_batch(self, source, fingerprint, offset, records):
-        with self.transaction():
-            self.reserve()
-            for r in records:
-                self.db.execute('INSERT OR IGNORE INTO history VALUES(?,?,?,?,?,?,?,?,?)',(r['id'],r['host'],r['agent'],r.get('session'),r['timestamp'],clean(r['summary'],2000),source,r['offset'],r['hash']))
-            self.db.execute('INSERT OR REPLACE INTO cursors VALUES(?,?,?)',(source,fingerprint,offset))
-        return {'records':len(records),'offset':offset}
-    def cursor(self, source):
-        with self.lock:
-            row=self.db.execute('SELECT * FROM cursors WHERE source=?',(source,)).fetchone()
-            return dict(row) if row else None
-    def dispatch(self, r):
-        op=r.get('op'); a=r.get('args',{})
-        if op=='snapshot': return self.snapshot()
-        if op=='save_agent_defaults': return self.save_agent_defaults(a)
-        if op=='create': return self.create(a)
-        if op=='control': return self.control(a['id'],a['action'],a['revision'])
-        if op=='claim': return self.claim(a['host'])
-        if op=='pulse': return self.pulse(a['step_id'],a['attempt'])
-        if op=='record': return self.record(**a)
-        if op=='finish': return self.finish(**a)
-        if op=='artifact': return self.artifact(a['id'])
-        if op=='artifact_versions': return self.artifact_versions(a['id'])
-        if op=='cursor': return self.cursor(a['source'])
-        if op=='import_batch': return self.import_batch(**a)
-        raise ValueError('Unknown service operation')
+        CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), ste…30563 tokens truncated…5219和所需输入。只能产生本地分支/待发布产物，不能离线更新 Windows 的 shared/latest 或项目目录册。
+- 重连后先校验 repo、base commit、规则修订和输入 hashes，再导入候选提交；冲突需明确合并。既有 Windows 任务不复制重跑。
+- 清理前确认 worktree 无活动租约、提交/产物已收到、dirty/untracked 文件已处理；使用 Git 原生命令管理 worktree。未同步内容和原生 agent 会话不自动删除。
+
+## 8. 实施顺序与验收
+
+A. 项目目录册与主机映射、启动自动上下文、路径与版本校验。任务从“填路径”变为“选项目”。
+B. 自动 worktree 与独占写入租约、发布/合并队列；接上最新版本产物 UI。
+C. 两个 CLI 的同一 MCP 接口与共享 Skill；文本 API 保留快照模式。
+
+必须验证：
+- ACC 与其他项目登记后，切换项目不能沿用前一个项目的备用目录。
+- 两个 agent 并发编辑同一个相对文件，物理工作树不同；互写被拒绝。
+- 规划、执行、审查读到匹配的 context revision 和固定输入版本；旧 handoff 不自动充当最新结果。
+- Codex 与 Claude 都接收相同语义的目录规则；Claude 真正完成授权 MCP 读取，而不只是初始化成功。
+- 路径穿越、Windows 大小写/盘符别名、symlink/junction 越界、过期租约、跨项目资源请求被拒绝。
+- Windows 离线时，错误仓库、缺失 commit 或 Windows-only 数据阻止 Mac 启动；已有任务不重放。
+- 大数据、归档日志和全部仓库不累积到 Mac；只有小快照和活动任务文件落地。
+- agent 在 ACC 外运行与平台内受控执行被明确区分；不能将 Markdown 当文件权限隔离。
+
+## 9. 官方资料与复用选择
+
+- Git worktree： https://git-scm.com/docs/git-worktree
+- Codex 项目指令： https://learn.chatgpt.com/docs/agent-configuration/agents-md
+- Codex Skills： https://learn.chatgpt.com/docs/build-skills
+- Claude 指令、AGENTS.md 与导入兼容： https://code.claude.com/docs/en/memory
+- Claude Skills： https://code.claude.com/docs/en/skills
+- Agent Skills 公共规范： https://agentskills.io/specification
+- Codex MCP： https://developers.openai.com/codex/mcp/
+- Claude MCP： https://code.claude.com/docs/en/mcp
+- 官方 MCP Python SDK（MIT）： https://github.com/modelcontextprotocol/python-sdk
+
+资料核查日期 2026-10-31。各机器实际安装版本和 ACC 限权启动参数仍需做能力测试；官方支持不等于当前 ACC 已接入。此次没有修改业务逻辑、运行 agent 任务、迁移目录或更改原生存储。

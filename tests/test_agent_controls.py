@@ -62,7 +62,7 @@ class AgentControlsTests(unittest.TestCase):
     def test_cli_options_are_actually_passed(self,find):
         c=argv('codex','test-model','xhigh');self.assertIn('--model',c);self.assertIn('test-model',c);self.assertIn('model_reasoning_effort="xhigh"',c)
         self.assertIn('read-only',c);self.assertIn('never',c)
-        c=argv('claude','sonnet','high');self.assertIn('--effort',c);self.assertIn('high',c);self.assertEqual(c[c.index('--tools')+1],'')
+        c=argv('claude','sonnet','high');self.assertIn('--effort',c);self.assertIn('high',c);self.assertEqual(c[c.index('--tools')+1],'WebSearch,WebFetch');self.assertIn('dontAsk',c)
     def test_invalid_shell_arguments_and_api_effort_rejected(self):
         for model in ['x & whoami','%USERPROFILE%','$(id)','x\ny','--help']:
             with self.assertRaises(ValueError):selection('codex',{'model':model,'effort':''})

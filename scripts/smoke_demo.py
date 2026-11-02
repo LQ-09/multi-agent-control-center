@@ -16,18 +16,17 @@ with tempfile.TemporaryDirectory() as cache:
         return r['data']
     try:
         call('configure',{'mode':'demo'})
-        t=call('create',{'key':'smoke','title':'Read-only orchestration smoke test','prompt':'Review the host boundary','workspace':'C:\\example','acceptance':'Three attributed handoffs; explicit final acceptance.'})
+        t=call('create',{'key':'smoke','title':'Read-only orchestration smoke test','prompt':'Review the host boundary','workspace':'C:\\example','acceptance':'Three attributed handoffs; reviewer acceptance.'})
         call('control',{'id':t['id'],'revision':1,'action':'run'})
         deadline=time.monotonic()+20
         while time.monotonic()<deadline:
             s=call('snapshot')
-            if s['tasks'][0]['status']=='Verifying':break
+            if s['tasks'][0]['status']=='Completed':break
             time.sleep(.2)
-        assert s['tasks'][0]['status']=='Verifying',s['tasks']
+        assert s['tasks'][0]['status']=='Completed',s['tasks']
         assert len(s['artifacts'])==3
-        call('control',{'id':t['id'],'revision':s['tasks'][0]['revision'],'action':'accept'})
         assert call('snapshot')['tasks'][0]['status']=='Completed'
-        print('PASS: JSON IPC -> SQLite -> Mac plan -> Windows execute -> Mac review -> user acceptance (all agents simulated).')
+        print('PASS: JSON IPC -> SQLite -> Mac plan -> Windows execute -> Mac review -> reviewer acceptance (all agents simulated).')
     finally:
         proc.stdin.close()
         try:proc.wait(timeout=10)

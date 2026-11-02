@@ -18,14 +18,13 @@ class CoreTests(unittest.TestCase):
         return self.store.create({'key':'one','title':'Test mission','prompt':'Inspect and summarize','workspace':'C:\\project','acceptance':'Evidence is explicit','agents':['codex','codex','claude']})['id']
     def control(self,id,action): return self.store.control(id,action,self.store.get_task(id)['revision'])
     def call(self,op,args=None): return self.store.dispatch({'op':op,'args':args or {}})
-    def test_end_to_end_requires_acceptance(self):
+    def test_end_to_end_reviewer_completes_task(self):
         id=self.create();self.control(id,'run')
         for host in ('mac','windows','mac'):
             s=self.store.claim(host);self.assertIsNotNone(s)
             self.assertIsNone(self.store.claim(host))
-            self.store.finish(s['id'],s['attempt'],'Verified handoff text')
-        self.assertEqual(self.store.get_task(id)['status'],'Verifying')
-        self.control(id,'accept');self.assertEqual(self.store.get_task(id)['status'],'Completed')
+            self.store.finish(s['id'],s['attempt'],'<acc_result>{"status":"succeeded","summary":"Passed.","details":"Verified evidence."}</acc_result>')
+        self.assertEqual(self.store.get_task(id)['status'],'Completed')
         self.assertEqual(len(self.store.snapshot()['artifacts']),3)
     def test_dependency_and_windows_restriction(self):
         id=self.create();self.control(id,'run');self.assertIsNone(self.store.claim('windows'))
@@ -95,9 +94,12 @@ class AdapterTests(unittest.TestCase):
             task=store.create({'key':'adapter','title':'Inspect','prompt':'Read only','workspace':root,'acceptance':'A result','agents':['codex','codex','claude']})['id']
             store.control(task,'run',1);step=store.claim('mac')
             fake=Path(root)/'fake_cli.py'
-            fake.write_text('import sys,json\nprompt=sys.stdin.read()\nassert "Plan agent" in prompt\nprint(json.dumps({"type":"thread.started","thread_id":"test-session"}))\nprint(json.dumps({"type":"item.completed","item":{"type":"agent_message","text":\'<acc_result>{"status":"succeeded","summary":"A bounded plan.","details":"Evidence references."}</acc_result>\'}}))\n')
+            from scripts.cli_fixture import script
+            fake.write_text(script("assert 'Plan agent' in prompt\nreturn '<acc_result>'+json.dumps(dict(status='succeeded',summary='A bounded plan.',details='Evidence references.'))+'</acc_result>'"))
+            (Path(root)/'autoswarm').mkdir()
+            (Path(root)/'autoswarm/config.json').write_text(json.dumps({'providers':{'codex':{'command':[sys.executable,str(fake)]}}}))
             def call(op,args=None):return store.dispatch({'op':op,'args':args or {}})
-            with patch('agents.argv',return_value=[sys.executable,str(fake)]):run(step,call,root)
+            with patch('agents.argv',return_value=['codex','exec']):run(step,call,root)
             snap=store.snapshot();self.assertEqual(snap['steps'][0]['status'],'Succeeded');self.assertEqual(snap['steps'][0]['session'],'test-session')
             self.assertEqual(snap['tasks'][0]['status'],'Queued');store.close()
     def test_cross_connection_claim_fencing(self):

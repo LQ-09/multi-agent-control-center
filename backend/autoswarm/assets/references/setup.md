@@ -1,0 +1,57 @@
+# Configure and recover
+
+Use the installed launcher argv in SKILL.md. Keep technical investigation in the agent's work; report verified availability, results, and anything that actually needs the user's action.
+
+## Configuration
+
+1. Run `agents` from the current App/tool environment. Its `check: executable` verifies CLI discovery, not model access. Confirm the actual command and version; terminals and Apps may resolve different installations.
+2. Reuse existing native settings, credentials, project directory, proxy and certificate configuration. A missing command does not prove that the App or its callable component is absent. Check known installation paths and compatible App-bundled executables; AutoSwarm does not scan App installations automatically. If a working CLI is outside PATH, merge its absolute argv into `providers.<provider>.command` in the AutoSwarm home/config.json reported by `agents`. An App executable must support the provider's child protocol; opening the GUI is not verification. Preserve other settings. Do not copy secrets into prompts or reports.
+3. If no usable CLI exists, propose connecting a task-relevant product. Honor a named product; when different products are requested, check that the available collaborators satisfy that request. Explain that its official command-line component receives delegated tasks while the user continues in the current App. Obtain any missing installation authorization, then follow the current official OS-specific instructions and configure it yourself. Reuse existing authorization; ask the user only for login or actions that actually require them. Do not install unrelated providers or replace the requested agent to hide a failure.
+4. Run `doctor --agent <provider> --probe --cwd <workspace>` using the same AutoSwarm home and project as the real task. This creates a native test conversation, checks a reply and native resume, and spends model calls. Only report verification after `verified: true`; an `approval_required` probe is pending, not failed. Answer its original request, collect the result and continue verification. Normal task success is evidence too; do not run extra probes for every task.
+5. After installation or update, briefly report the collaborators actually verified and invite the user to name any others they want connected. Distinguish detected-but-unverified entry points when relevant. If none are ready, report that AutoSwarm is installed and propose a suitable collaborator to connect. Keep the summary in the user's language; it should explain what they can use, not require them to understand installation commands.
+
+## Upgrades
+
+Update when requested; AutoSwarm has no automatic updater. Keep the work in the main agent:
+
+1. Read the installed Skill's launcher argv to retain its Python environment and AutoSwarm `--home`. Retain the actual Skill, hook settings and plugin destinations, including custom paths. Collect active delegated work before replacing its runtime.
+2. Obtain the requested revision from the user's repository or the known original source. For an existing checkout on the intended branch, `git pull --ff-only` updates it; preserve local edits and do not reset them to force an update.
+3. From the updated checkout, reinstall with the original installation method: `uv tool install --reinstall .`, or `python -m pip install --force-reinstall .` using the existing dedicated Python environment. Reinstall even if the development version label has not changed.
+4. Run the **updated package's** `autoswarm --home <existing-home> setup --host <host>` (or `python -m autoswarm` with the same arguments). Reuse custom `--skill-dir`, `--settings-file` and `--plugin-dir` values, and refresh each host installation in use. Setup copies the runtime, Skill and references and refreshes that host's integration. The old installed launcher imports its own copied runtime; invoking setup through it does not obtain the new package.
+5. Preserve `home/config.json`, task/message records and native agent configuration, credentials and histories. Reload the host as its integration requires, read the refreshed Skill's launcher argv, then verify the needed providers in the actual host/project using the Configuration guidance above. Package or CLI version output alone does not verify the installed Skill's runtime. Briefly report what was updated, the verified collaborators, how to request another collaborator and any issue needing user action.
+
+## Hermes, Nanobot, DSH and Grok Build
+
+Use provider names `hermes`, `nanobot`, `dsh`, `grok`; `grok-build` is a child-provider alias. They use the same run/resume, messaging and result collection commands. With these main hosts, collect work using wait in the current turn.
+
+| Provider | Native entry | Skill installation |
+|---|---|---|
+| Hermes | `hermes acp` | `$HERMES_HOME/skills/autoswarm`, default `~/.hermes/skills/autoswarm` |
+| Nanobot | Installed Python SDK through the bundled local bridge | Native configured workspace's `skills/autoswarm`, resolved by its own config loader |
+| DSH | `dsh --profile acp` | `$DSH_AGENTS_HOME/skills/autoswarm`, default `~/.agents/skills/autoswarm` |
+| Grok Build | `grok agent --no-leader stdio` | `~/.grok/skills/autoswarm` |
+
+`setup --host <provider> --skill-dir <path>` overrides the destination when native skill roots differ. Native profile/tool policies still determine which skills, memory and tools are available; AutoSwarm does not replace them. A native transcript/session ID does not guarantee that every product App lists that session.
+
+DSH's ACP profile can select a different route from its configured headless/web profile. Inspect the existing native profile and reuse its provider configuration and credential references. Add compatible overlays with `providers.dsh.args: ["--patch", "<existing-route-patch>", "--patch", "<acp-route-patch>"]`; do not switch to a web/headless application that cannot speak ACP. The ACP route patch replaces the native `acp` entry's complete `config` with the already-configured `provider` and `model` (retain any other desired native ACP fields). Explicit `--model provider/model` can instead select a route advertised by the composed ACP profile. Do not infer missing credentials from the untouched ACP default. Keep machine-specific patches outside the distributed package.
+
+Nanobot runs in the environment that installed its CLI, without another SDK installation. The adapter finds its Python from the launcher or neighboring venv executables. For wrappers where this cannot be inferred, set `providers.nanobot.python` to the existing native Python argv, for example `["<native-venv>/bin/python"]` or `["<native-venv>/Scripts/python.exe"]`. Native `--config`/`--workspace` arguments can go in `providers.nanobot.args`; do not replace its memory/skills workspace with the project cwd. The bridge supplies the project through native session workspace scope. This SDK has no native interactive approval channel, reported as `approval_relay: false`, so AutoSwarm defaults each new/resumed Nanobot session to native Full Access (`access_mode: full`). This is session metadata, not a global native config edit. For restricted access, set `providers.nanobot.args` to include `["--access-mode", "restricted"]` or pass `--provider-arg=--access-mode --provider-arg=restricted` on the call. Native OS/enforced sandbox boundaries still apply; SDK/tool errors remain visible to the parent. Hermes, DSH and Grok permissions use the shared ACP relay without unconditional approval flags.
+
+## Recovery
+
+Start with `inspect <call-id>`, its result diagnostics, handle phase, stdout.log and stderr.log. Check the actual executable and workspace before changing installations.
+
+Some native transports do not copy their transcript to stdout.log. An empty log is not evidence of failure; use the result and native session ID. After final results arrive, verify the requested deliverables and integrate them; additional protocol investigation needs an actual unresolved error.
+
+- CLI missing: resolve/configure an existing path before offering installation.
+- Startup: check process exit and startup logs. OpenCode readiness uses its owned loopback health endpoint, not banner wording. A live process awaiting readiness is not proof of successful invocation; inspect or cancel it when investigating.
+- Protocol: inspect the failing method/path and installed native version. OpenCode advertises its API at `/doc`. An unsupported API requires a compatible AutoSwarm adapter, not new model credentials.
+- Connection: distinguish the local control service from the remote model endpoint. Local loopback traffic must bypass external proxies; remote model traffic keeps native proxy and CA settings. Do not disable TLS verification to hide a certificate problem.
+- Authentication: an empty `auth list` does not cover API keys in native config, environment variables or other native credential sources. Judge by the real request. A local OpenCode server 401 concerns its control-channel authentication; a model-provider rejection concerns model access. Ask for native login only when the evidence requires it.
+- Environment: compare the working native CLI's profile with the App's tool process. Shell startup exports may be absent; native model keys may reference those variables. Reuse the existing profile through a configured argv launcher instead of copying credentials into AutoSwarm. Copilot BYOK needs its provider environment; CodeBuddy ACP may require `CODEBUDDY_API_KEY` even when a custom model has a key reference. Match the already-selected native provider and endpoint; verify a real call before claiming success.
+- Approval: relay the original request using the Skill's approval rules; do not restart the child to bypass it.
+- Sandbox: the main host must be able to run the installed launcher and write AutoSwarm's record directory. A read-only filesystem error before a call is accepted is a host permission issue; use its specific approval mechanism for the command/path. Do not disable the native sandbox or replace the supplied launcher paths to work around it.
+- Return: a saved result with a failed notification is already available via `wait`/`receive`. Use it; ordinary tasks do not require configuring an App wake-up interface.
+
+Fix routine configuration within the existing authorization and repeat the relevant check. Resume an existing native session when appropriate; if acceptance of a previous operation is uncertain, inspect it before retrying. Ask the user only for missing authorization, login/credentials they must supply through the native interface, or a decision the agent cannot make.
+
