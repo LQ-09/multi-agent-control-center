@@ -6,6 +6,7 @@ import sys
 import threading
 from core import Store, clean
 from agents import run, version, cleanup
+from browser_tools import research_capabilities
 from history import scan
 from providers import Providers
 from agent_monitor import AgentMonitor
@@ -20,13 +21,13 @@ def main():
         try:
             if len(line)>1_000_000: raise ValueError('Request too large')
             req=json.loads(line); op=req.get('op')
-            if op=='hello': result={'host':platform.node(),'os':platform.system(),'agents':{a:version(a) for a in ('codex','claude')},'root':str(store.root),'protocol':2,'profile':args.profile,'agent_controls':1,'planned_acceptance':1,'model_catalog':1,'workspace_write':1,'result_contract':1,'retry_steps':1,'task_management':1,'windows_first':1}
+            if op=='hello': result={'host':platform.node(),'os':platform.system(),'agents':{a:version(a) for a in ('codex','claude')},'root':str(store.root),'protocol':2,'profile':args.profile,'agent_controls':1,'planned_acceptance':1,'model_catalog':1,'workspace_write':1,'result_contract':1,'retry_steps':1,'task_management':1,'windows_first':1,'shared_workspaces':1,'adaptive_workflow':2,'version':'0.14.0','research':research_capabilities()}
             elif op=='agent_status':result=monitor.snapshot(bool(req.get('args',{}).get('refresh')))
             elif op=='tick' and platform.system()=='Windows' and interactive_enabled(store.root):
                 if active: raise ValueError('Stop existing SSH-owned tasks before switching to the interactive worker')
                 result=interactive_tick(store,args.profile)
             elif op=='tick':
-                s=call('claim',{'host':'worker' if args.profile=='single' else 'windows'}) if len(active)<1 else None
+                s=call('claim',{'host':'worker' if args.profile=='single' else 'windows'}) if len(active)<3 else None
                 if s:
                     active.add(s['id'])
                     def work(step):
@@ -50,6 +51,10 @@ def main():
                     if args.profile=='single' or data.get('routing')=='windows-first' or i==1:monitor.validate_selection(agent,option)
                 for agent in req.get('args',{}).get('agents',[]):
                     if agent.startswith('api:'): providers.get(agent[4:])
+                result=store.dispatch(req)
+            elif op=='control' and req.get('args',{}).get('action')=='login_open':
+                if platform.system()!='Windows' or not interactive_enabled(store.root):
+                    raise ValueError('Remote login handoff requires the logged-in Windows interactive worker.')
                 result=store.dispatch(req)
             else: result=store.dispatch(req)
             response={'ok':True,'data':result}

@@ -16,7 +16,10 @@ BROWSER_TOOLS = ['browser_navigate', 'browser_navigate_back', 'browser_snapshot'
 def runtime_root():
     return Path.home() / 'AgentControlCenter' / 'browser-runtime'
 
-def browser_server(task_id='default'):
+def profile_path(owner='shared'):
+    return runtime_root() / 'profiles' / ('shared' if owner=='shared' else hashlib.sha256(str(owner).encode()).hexdigest()[:24])
+
+def browser_server(task_id='default', owner='shared'):
     root = runtime_root()
     cli = root / 'node_modules' / '@playwright' / 'mcp' / 'cli.js'
     node = shutil.which('node')
@@ -25,14 +28,15 @@ def browser_server(task_id='default'):
     profile = hashlib.sha256(str(task_id).encode()).hexdigest()[:24]
     return {'command': node, 'args': [str(cli), '--browser',
             'msedge' if sys.platform == 'win32' else 'chrome',
-            '--user-data-dir', str(root / 'profiles' / 'shared'),
+            '--user-data-dir', str(profile_path(owner)),
             '--output-dir', str(root / 'artifacts' / profile), '--no-webmcp', '--headless']}
 
 @contextmanager
-def browser_lease():
+def browser_lease(owner='shared'):
     """One owner across workers/authorities; never share a live profile."""
     root=runtime_root(); root.mkdir(parents=True,exist_ok=True)
-    with (root/'browser.lock').open('a+b') as lock:
+    name='browser.lock' if owner=='shared' else 'browser-'+hashlib.sha256(str(owner).encode()).hexdigest()[:24]+'.lock'
+    with (root/name).open('a+b') as lock:
         if lock.tell()==0: lock.write(b'0'); lock.flush()
         lock.seek(0)
         try:

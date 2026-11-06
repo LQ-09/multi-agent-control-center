@@ -25,6 +25,6 @@ try {
 } finally {
     Start-ScheduledTask -TaskName $task.TaskName
 }
-Write-Host 'ACC worker 0.13.0 installed. Reconnect the Mac app; then run the real CLI probe below.'
+Write-Host 'ACC worker 0.14.0 installed. Reconnect the Mac app; then run the real CLI probe below.'
 & $python (Join-Path $PSScriptRoot 'verify_swarm.py') --backend (Join-Path $Target 'backend') --state $state --workspace $source
 if ($LASTEXITCODE -ne 0) { throw 'Upgrade completed, but real agent verification failed. Keep the printed diagnostics.' }

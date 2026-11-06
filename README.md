@@ -6,6 +6,12 @@ Tauri 2 · React · TypeScript · Python · SQLite · MIT
 
 > **Preview software.** Codex defaults to read-only with explicit per-task workspace-write for Execute; Claude Code has web research tools and API models receive text only. This is not an autonomous coding agent, a trading system, or a production multi-user service. See [limitations](#current-limits) before relying on results.
 
+## Parallel task graphs (0.14.0)
+
+New plans specify nodes and dependencies. Up to three independent assignments run concurrently on the selected host; each join starts as soon as its own inputs are ready. The task detail shows a clickable dependency graph with live states, instructions, owners and results. Delivery can append a follow-up graph (up to three rounds) before final acceptance. Failed reviews can target upstream node IDs; only those nodes and their descendants are repeated, after active calls drain.
+
+Independent research uses per-node persistent headless browser profiles. A node can request the shared ACC login profile, which serializes browser ownership. Login handoff opens the blocked node's own profile. No browser cookies are copied. Existing ordered tasks retain their dependencies. Writes to the same workspace are exclusive with other reads/writes; parallel code editing in separate branch worktrees is not yet supported. Tasks still stay on one authority/host. Windows workers must be upgraded to 0.14.0 for new adaptive tasks.
+
 ## AutoSwarm and adaptive teams (0.13.0)
 
 New tasks default to **Adaptive team (AutoSwarm)**. The owner chooses a task-specific ordered list of assignments from the three available agent configurations, reusing configurations when useful. A simple task can use one delivery assignment; larger tasks can have multiple executors and optional independent reviews. The final delivery must explicitly accept the evidence. This release executes assignments sequentially on one host; parallel browser ownership and arbitrary cross-host task graphs are not implemented.

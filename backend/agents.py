@@ -35,7 +35,7 @@ def version(agent):
         return {'available':p.returncode==0,'path':binary,'version':clean(p.stdout.strip() or p.stderr,300)}
     except Exception as e: return {'available':False,'error':clean(e,300)}
 
-def argv(agent, model="", effort="", execution_mode="read-only", task_id='default'):
+def argv(agent, model="", effort="", execution_mode="read-only", task_id='default', browser_owner='shared'):
     if execution_mode not in ("read-only", "workspace-write") or (execution_mode=="workspace-write" and agent!="codex"):
         raise ValueError("Workspace writes require Codex Execute")
     selection(agent,{"model":model,"effort":effort})
@@ -43,7 +43,7 @@ def argv(agent, model="", effort="", execution_mode="read-only", task_id='defaul
     if effort:extra+=(["-c",'model_reasoning_effort="'+effort+'"'] if agent=="codex" else ["--effort",effort])
     binary=shutil.which(agent)
     if not binary: raise ValueError(f'{agent} is not installed or not visible in the background process PATH')
-    server=browser_server(task_id)
+    server=browser_server(task_id,browser_owner)
     if agent=='codex': extra+=['-c','web_search="live"',*codex_browser_args(server)]
     if agent=='codex':
         return [binary,*extra,*(['-c','sandbox_workspace_write.network_access=true','-c','sandbox_workspace_write.writable_roots=[]','-c','sandbox_workspace_write.exclude_tmpdir_env_var=true','-c','sandbox_workspace_write.exclude_slash_tmp=true'] if execution_mode=='workspace-write' else []),'-a','never','exec','--json','--sandbox',execution_mode,'--skip-git-repo-check','-']
@@ -56,13 +56,14 @@ def argv(agent, model="", effort="", execution_mode="read-only", task_id='defaul
 
 def prompt_for(s):
     context='\n\n'.join(x['role']+':\n'+x['output'][:10000] for x in s['context'])
-    writable=s['role'] in ('Execute','Deliver') and s['agent']=='codex' and s['task'].get('execution_mode')=='workspace-write'
+    from task_graph import writable as can_write
+    writable=can_write(s,s['task'])
     scope=(f"You may modify project files only inside the selected workspace: {s['task']['workspace']}. " if writable else 'This role is read-only: do not modify files; provide proposals as text only. ')
     adaptive=s['task'].get('workflow')=='adaptive'
     result=(f"You are the {s['role']} agent in Agent Control Center. "+scope+
         'Do not run destructive actions, trade, book, purchase, send messages or handle credentials. Search/date/filter forms are permitted for research. Produce a concise useful result, state assumptions and unverified claims. '
         'Filesystem read-only does not prohibit web research or browser-managed profiles and evidence. Use live search for current facts and acc_browser for dynamic pages when configured; do not assume a desktop/iab browser exists. '
-        'Browser runs headless with a shared ACC-only profile; never open a visible window yourself. If login or CAPTCHA is required, return blocked with reason=login_required and login_url set to the HTTPS site URL in acc_result. Include completed findings and remaining work in details. The user opens the login window, resolves the obstacle and explicitly continues; then verify access again. Never handle credentials or bypass permissions. Other site restrictions remain ordinary blocked results. '
+        'Browser runs headless with an ACC-only profile assigned to this node; never open a visible window yourself. If login or CAPTCHA is required, return blocked with reason=login_required and login_url set to the HTTPS site URL in acc_result. Include completed findings and remaining work in details. The user opens the login window, resolves the obstacle and explicitly continues; then verify access again. Never handle credentials or bypass permissions. Other site restrictions remain ordinary blocked results. '
         'For prices, record source URL, observation time, dates, occupancy, room/product, currency, total and fees/cancellation conditions; never infer dated prices from search snippets. Review must independently reopen the cited sources when current external evidence is required. '
         'ACC schedules the roles sequentially. Judge only your current stage; do not invoke other agents or require a scheduler tool. Never block because a later stage has not run. '
         'For Plan: a concrete plan and handoff satisfy your stage; report succeeded when those are ready, without waiting for Execute or Review. Outline a short approach. If Acceptance is empty, derive concrete, checkable acceptance criteria from the goal and append them inside <acceptance_criteria>...</acceptance_criteria> (maximum 2000 characters). Separate verified evidence from unavailable work. For Execute: complete the assigned work and provide evidence; do not wait for Review. Use only tools permitted by the assigned execution scope. '
@@ -106,7 +107,7 @@ def run(s, call, mac_workspace=None, demo=False, providers=None):
                 report('[SIMULATED] '+message); time.sleep(.45)
             if s['task'].get('workflow')=='adaptive':
                 text='<acc_result>'+json.dumps({'status':'succeeded','accepted':True,'summary':'Simulated adaptive assignment.','details':'Simulation only; no real agent or external evidence.'})+'</acc_result>'
-                if s['role']=='Plan':text+='<acc_plan>{"steps":[{"role":"Deliver","slot":0,"instruction":"Complete and verify this simulated task."}]}</acc_plan><acceptance_criteria>Explicitly simulated adaptive handoffs.</acceptance_criteria>'
+                if s['role']=='Plan':text+='<acc_plan>{"steps":[{"id":"research_a","depends_on":[],"role":"Execute","slot":0,"instruction":"Simulate independent research A."},{"id":"research_b","depends_on":[],"role":"Execute","slot":1,"instruction":"Simulate independent research B."},{"id":"delivery","depends_on":["research_a","research_b"],"role":"Deliver","slot":2,"instruction":"Combine both simulated results and verify."}]}</acc_plan><acceptance_criteria>Explicitly simulated adaptive handoffs.</acceptance_criteria>'
                 return call('finish',{**common,'output':text})
             text={'Plan':'1. Inspect the requested scope.\n2. Analyze on the selected environment.\n3. Review results.\n4. Reviewer checks the evidence.\n<acceptance_criteria>Simulated workflow produces three handoffs and explicitly identifies all unverified claims; the reviewer checks the results.</acceptance_criteria>',
                 'Execute':'Simulated execution result. No CLI or external command ran.\nThe demo produced this small handoff to demonstrate cross-host ordering.',
@@ -144,7 +145,8 @@ def run(s, call, mac_workspace=None, demo=False, providers=None):
         cwd=Path(s['workspace_context']['workspace'] if s.get('workspace_context') else
                  mac_workspace if s['host']=='mac' else s['task']['workspace']).expanduser().resolve()
         if not cwd.is_dir(): raise ValueError('Execution workspace does not exist: '+str(cwd))
-        mode=s['task'].get('execution_mode','read-only') if s['role'] in ('Execute','Deliver') and s['agent']=='codex' else 'read-only'
+        from task_graph import writable, browser_key
+        mode='workspace-write' if writable(s,s['task']) else 'read-only'
         if mode=='workspace-write':
             from core import validate_execution_workspace
             validate_execution_workspace(str(cwd))
@@ -152,8 +154,8 @@ def run(s, call, mac_workspace=None, demo=False, providers=None):
             protected=[home/'.codex',home/'.claude',home/'.ssh']
             if cwd==home or any(cwd==p or p in cwd.parents or cwd in p.parents for p in protected):
                 raise ValueError('Choose a dedicated project directory, not a home or native agent directory')
-        if browser_server(): resources.enter_context(browser_lease())
-        command=argv(s['agent'],s.get('model',''),s.get('effort',''),mode,s['task'].get('id',s.get('task_id','default')))
+        if browser_server(): resources.enter_context(browser_lease(browser_key(s)))
+        command=argv(s['agent'],s.get('model',''),s.get('effort',''),mode,s['task'].get('id',s.get('task_id','default')),browser_key(s))
         if s['agent']=='codex':
             provider_args=command[1:command.index('exec')]+['--sandbox',mode]
         else:
@@ -163,12 +165,14 @@ def run(s, call, mac_workspace=None, demo=False, providers=None):
         report(json.dumps({'type':'agent.configuration','agent':s['agent'],'model':s.get('model') or 'CLI default','effort':s.get('effort') or 'CLI default'}))
         from swarm_adapter import execute
         outcome=execute(s,cwd,prompt_for(s),provider_args,lambda:call('pulse',common),report)
+        resources.close()
         if not outcome.get('stopped'): result_contract(outcome['output'],required=True)
         return call('finish',{**common,**outcome})
     except Exception as e:
         if p:
             try: stop_process(p)
             except Exception: e=RuntimeError('Process termination unconfirmed; reconcile before retry. '+str(e))
+        resources.close()
         try: call('finish',{**common,'output':'','error':clean(e,2000)})
         except Exception: pass  # Authority loss: lease expiry blocks the task; never replay execution.
 

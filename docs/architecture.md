@@ -1,4 +1,22 @@
+## 0.14.0 dependency graph amendment
+
+This supersedes 0.13's sequential adaptive scheduling. Steps persist node_key, dependency IDs, access scope and browser ownership. Omitted dependency data on old rows means the original ordered dependencies. Store.claim runs in a SQLite BEGIN IMMEDIATE transaction, checking dependency success, a host-wide limit of three and workspace/browser resource conflicts. Broker, SSH and interactive-worker loops launch bounded background calls.
+
+Task state is derived from all nodes: an unrelated success cannot clear a failure, lost lease or user stop. Pause/cancel signals every active branch; restart remains fenced until all outcomes are known. Reviewer rework waits for running branches to settle, then resets only selected upstream executors and descendants, preserving unrelated results. Deliver can append another DAG after a succeeded non-final handoff, with three follow-up rounds maximum. Only final accepted delivery completes the task.
+
+Each isolated node owns a persistent browser profile and lock; shared-login nodes retain the global shared profile/lock. Login handoff selects the blocked node's profile and drains active work before opening a headed window. File writes remain exclusive in a shared workspace; this is not parallel source editing with automatic Git merging. DAG execution remains single-host. The UI renders edges from persisted dependencies and exposes node state and evidence on click.
+
+## 0.13.0 amendment
+
+New adaptive tasks replace the fixed three-role graph with a Plan-generated ordered list of Execute/optional Review/Deliver assignments. The user selects the available CLI configurations; the planner chooses assignment count and responsibilities. Only the final Deliver accepted:true can complete an adaptive task. Legacy tasks retain their original rules.
+
+ACC remains the selected host authority and owns SQLite, leases, task state, worktrees and acceptance. The vendored AutoSwarm runtime owns CLI calls, native session IDs and cancellation. Call IDs are recorded per step; rework/retry resumes a known stopped session. Frozen builds dispatch AutoSwarm child runners through the bundled executable, without a Python installation. The runtime is pinned, not fetched at execution time.
+
+Current limit: assignments are sequential on one host, including independent research assignments. This keeps the shared browser profile exclusive. Native questions are surfaced as blocked tasks; this release does not expose a generic permission-response UI. The website login handoff is separate and explicit.
+
 # Architecture decisions — public preview 0.3
+
+For the additive 0.12 project registry, immutable context, per-task worktree and offline-pairing amendments, see [shared workspaces](shared-workspaces.md). Those rules supersede the earlier path-only fallback behavior for new offline submissions.
 
 ## Operating modes
 
@@ -27,12 +45,12 @@ flowchart TD
 | Persistence | SQLite WAL per authority | Local transactional state; never shared live DB files |
 | Task graph | Fixed Plan → Execute → Review | Inspectable initial implementation; dynamic DAG deferred |
 | Ordering | Monotonic database sequence plus event IDs | Deterministic per-authority timeline and idempotent ingestion |
-| CLI | Codex read-only; Claude tool-free | Bounded initial capabilities |
+| CLI | Codex scoped filesystem; Claude web research | Bounded initial capabilities |
 | API | OpenAI-compatible Chat Completions | Text-only provider integration, not a filesystem agent |
 | Secrets | CLI-owned auth; session keys in memory | No secrets in profiles, history or source control |
 | Network | SSH stdio, strict host-key checking | No public listener; Tailscale optional private transport |
 | Routing | Explicit host labels and selected profile | No fallback from remote to local execution |
-| Completion | Output plus explicit human acceptance | Exit 0 and model confidence are not acceptance evidence |
+| Completion | Structured Reviewer acceptance | Reviewer success completes; fixable rejection returns to Execute, up to three rounds |
 | Recovery | Leases; no blind replay | Unknown process/request outcomes become Blocked |
 | Packaging | macOS arm64 `.pkg`, bundled runtime | Local ad-hoc signatures; notarization remains pending |
 
@@ -107,9 +125,9 @@ Additive SQLite migrations add model/effort to steps (blank for old tasks) and a
 
 ## 0.11 execution and result contracts
 
-New tasks default to Create and run; save-only remains available. Explicit per-task workspace-write is limited to Codex Execute in the selected project directory; planning/review remain read-only, Claude remains tool-free. Codex's workspace-write sandbox stays enabled and CLI subprocess network access is allowed for Git. Root/home/native session directories are rejected. The directory must already exist. Worker capability negotiation prevents writes being silently ignored by older workers. No unrestricted access flags are used.
+New tasks default to Create and run; save-only remains available. Explicit per-task workspace-write is limited to Codex Execute in the selected project directory; planning/review remain read-only, Claude has web research tools. Codex's workspace-write sandbox stays enabled and CLI subprocess network access is allowed for Git. Root/home/native session directories are rejected. The directory must already exist. Worker capability negotiation prevents writes being silently ignored by older workers. No unrestricted access flags are used.
 
-Every real agent receives the same platform-injected result format: one final `<acc_result>` JSON object with status (`succeeded`, `blocked`, `failed`), a one-line summary of at most160 characters, and full details. Missing/malformed results fail closed. Blocked/failed outcomes stop dependent steps; successful review still requires user acceptance. CLI exit0 alone is insufficient. Timeline uses one bounded summary per step; raw output remains available under Debug logs. Older stored records are not reclassified automatically.
+Every real agent receives the same platform-injected result format: one final `<acc_result>` JSON object with status (`succeeded`, `blocked`, `failed`), a one-line summary of at most160 characters, and full details. Missing/malformed results fail closed. Blocked outcomes stop execution. A structured Review failure with concrete feedback returns to Execute for up to three revision rounds; a successful Review completes the task automatically. External obstacles or an exhausted revision limit require user input. CLI exit0 alone is insufficient. Timeline uses one bounded summary per step; raw output remains available under Debug logs. Older stored records are not reclassified automatically.
 
 Windows runner pipe-in timeouts remain an independently unverified runtime issue. Workspace permissions do not establish runner health or clone success. Desktop updates do not update remote workers.
 
@@ -130,8 +148,7 @@ Worker liveness is refreshed every 3 seconds; controller liveness expires after 
 seconds. Missing/mismatched worker makes SSH tick fail visibly. Controller loss
 stops new claims and causes active CLI termination on the next pulse (normally within
 20 seconds); expired execution leases retain existing no-replay behavior. Process
-crashes leave the marker in place, preventing a fallback to Session 0. Explicit
-human task acceptance remains required.
+crashes leave the marker in place, preventing a fallback to Session 0. Structured Reviewer acceptance is required.
 
 Stop running tasks before installing. Start with no pending tasks, then reconnect
 and submit a read-only diagnostic before queuing research. A ready heartbeat proves
@@ -182,3 +199,9 @@ all steps; retry resets only the failed dependency. Live, retained-lease and
 unknown/unconfirmed outcomes cannot be restarted or archived. Events stay append-only.
 Latest-artifact selection groups by task/step/name before limiting the result;
 older versions stay immutable and are retrieved on demand (up to 100 per group).
+
+## Research tools
+
+The CLI adapter explicitly enables live Codex search and Claude WebSearch/WebFetch in every role. Optional ACC-owned Playwright MCP is injected per invocation (no native CLI configuration changes). A task-specific persistent profile separates concurrent tasks while retaining browser state across sequential handoffs/retries. Claude receives only the listed browser tools, not arbitrary browser code, upload, shell or file-edit tools. API adapters remain text-only. Browser output/profile storage is separate from project write permission.
+
+Capability negotiation and timeline events report installation/configuration, never inferred runtime availability. Dynamic-site verification must be performed by a real CLI task on its assigned host. Login, CAPTCHA and site-permission failures block the task with actionable details; no automatic retries or permission bypass. Review reopens sources for current evidence.

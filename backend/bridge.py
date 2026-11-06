@@ -99,7 +99,7 @@ class Bridge:
         self.next_reconnect=0
         self.providers=Providers(self.cache/'local'); self.monitor=AgentMonitor()
         self.remote=None; self.connected=self.config['mode']=='local'; self.info=None
-        self.update_pending=False; self.error=None; self.active=False; self.active_remote=False; self.stop=False; self.last_live=None
+        self.update_pending=False; self.error=None; self.active=0; self.active_remote=0; self.stop=False; self.last_live=None
         self.needs_connect=self.config['mode']=='live'
         self.local_agents={a:version(a) for a in ('codex','claude')}
         self.execution_lock=threading.RLock()
@@ -118,18 +118,18 @@ class Bridge:
                 with self.execution_lock:
                     if self.update_pending: pass
                     elif self.config['mode'] in ('demo','local'):
-                        if not self.active and not (self.config['mode']=='local' and self.login.tick()):
+                        if self.active<3 and not (self.config['mode']=='local' and self.login.tick()):
                             s=(self.call('claim',{'host':'mac'}) or self.call('claim',{'host':'windows'})) if self.config['mode']=='demo' else self.call('claim',{'host':'local'})
                             if s: self.start(s,self.config['mode']=='demo')
                     elif self.config['mode']=='live':
-                        if not self.active:
+                        if self.active<3:
                             s=self.fallback.claim('local')
                             if s: self.start(s,False,local_fallback=True)
                         if not self.connected: continue_tick=False
                         else:
                             self.remote.call('tick')
                             continue_tick=True
-                        if continue_tick and self.config['profile']=='split' and not self.active:
+                        if continue_tick and self.config['profile']=='split' and self.active<3:
                             s=self.call('claim',{'host':'mac'})
                             if s: self.start(s,False)
             except Exception as e:
@@ -137,14 +137,17 @@ class Bridge:
                 if self.config['mode']=='live': self.connected=False
             time.sleep(.6)
     def start(self,s,demo,local_fallback=False):
-        self.active=True
+        self.active+=1
         target=self.fallback.dispatch if local_fallback else self.demo.dispatch if demo else self.local.dispatch if self.config['mode']=='local' else None
-        self.active_remote=target is None
+        self.active_remote+=int(target is None)
         remote=self.remote; workspace=self.config['mac_workspace']
         def call(op,args=None): return target({'op':op,'args':args or {}}) if target else remote.call(op,args)
         def work():
             try: run(s,call,workspace,demo,self.providers)
-            finally: self.active=False
+            finally:
+                with self.execution_lock:
+                    self.active-=1
+                    self.active_remote-=int(target is None)
         threading.Thread(target=work,daemon=True).start()
     def idle(self, allow_finished_blocks=False):
         if self.active: raise ValueError('Stop active work before changing environments or providers.')
@@ -284,8 +287,8 @@ class Bridge:
             return self.fallback.workspaces.cache(config,args['repo_path'],authority)
         if op=='save_project':
             return self.call(op,args)
-        if op=='create' and args.get('workflow')=='adaptive' and self.config['mode']=='live' and self.connected and not (self.info or {}).get('adaptive_workflow'):
-            raise ValueError('Update the Windows worker to 0.13.0 before creating adaptive tasks.')
+        if op=='create' and args.get('workflow')=='adaptive' and self.config['mode']=='live' and self.connected and (self.info or {}).get('adaptive_workflow',0)<2:
+            raise ValueError('Update the Windows worker to 0.14.0 before creating adaptive tasks.')
         if op=='create' and self.automatic():
             if self.connected and not (self.info or {}).get('windows_first'): raise ValueError('Update the Windows backend for automatic all-Windows routing.')
             local,payload=self.routing.submission(args,self.config,self.connected)

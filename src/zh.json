@@ -464,5 +464,17 @@
   "Assign": "分工",
   "Work": "处理任务",
   "Let the task owner choose the team.": "由任务负责人决定分工。",
-  "The delivery agent verifies the task criteria. Failed checks return to execution for up to three revision rounds.": "交付智能体负责核对任务标准。检查不通过会返回修改，最多三轮。"
+  "The delivery agent verifies the task criteria. Failed checks return to execution for up to three revision rounds.": "交付智能体负责核对任务标准。检查不通过会返回修改，最多三轮。",
+  "Task graph": "任务依赖图",
+  "agents running": "个智能体运行中",
+  "Arrows show dependencies. Branches can run together; joins wait for their inputs. Click a node for details.": "箭头表示前置依赖。同层分支可并行，汇总节点等待输入齐全后继续。点击节点查看详情。",
+  "The planner will add the task branches here.": "规划完成后，这里会显示具体的任务分支。",
+  "Plan task assignments": "规划任务分工",
+  "Ready · waiting for slot/resource": "已就绪 · 等待名额或共享资源",
+  "Waiting for dependencies": "等待前置任务",
+  "Depends on": "依赖",
+  "Coordinate": "汇总与再规划",
+  "read-only": "只读",
+  "workspace-write": "工作目录可写",
+  "The owner chooses dependencies and agents. Independent branches run in parallel, then join for delivery.": "负责人规划分工和依赖；独立分支并行执行，汇总后检查交付。"
 }

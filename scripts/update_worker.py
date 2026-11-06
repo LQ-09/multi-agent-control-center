@@ -26,7 +26,7 @@ def main():
             raise SystemExit('Close the ACC login window before upgrading.')
     if a.check:
         print('Preflight passed. Existing worker Python:',sys.executable);return
-    backup=target/'backups'/('0.13.0-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
+    backup=target/'backups'/('0.14.0-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
     backup.mkdir(parents=True)
     with sqlite3.connect(db.as_uri()+'?mode=ro',uri=True) as old, sqlite3.connect(backup/'control.sqlite') as copy:old.backup(copy)
     with tempfile.TemporaryDirectory(prefix='acc-upgrade-',dir=target) as temp:
@@ -37,6 +37,6 @@ def main():
         try:stage.rename(target/'backend')
         except BaseException:
             (backup/'backend').rename(target/'backend');raise
-    print('Worker code upgraded to 0.13.0. Previous code and database backup:',backup)
+    print('Worker code upgraded to 0.14.0. Previous code and database backup:',backup)
 
 if __name__=='__main__':main()

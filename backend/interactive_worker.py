@@ -9,6 +9,7 @@ import threading
 from core import Store
 from agents import run, cleanup
 from providers import Providers
+from login_handoff import LoginWindow
 
 MAX_AGE = 15
 
@@ -76,6 +77,7 @@ def main():
         msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
         store = Store(root, host='worker' if args.profile == 'single' else None)
         providers = Providers(root)
+        login = LoginWindow(store, 'worker' if args.profile == 'single' else 'windows')
         marker = root / 'interactive-executor.json'
         heartbeat(store, 'controller', {'time': 0})
         marker.write_text(json.dumps({'profile': args.profile}), encoding='utf-8')
@@ -85,6 +87,7 @@ def main():
         def call(op, data=None):
             beat()
             return guarded_call(store, args.profile, op, data)
+        active=set()
         stop = threading.Event()
         def keepalive():
             while not stop.wait(3):
@@ -97,14 +100,23 @@ def main():
                 beat()
                 controller = heartbeat(store, 'controller')
                 if fresh(controller) and controller.get('profile') == args.profile:
-                    step = call('claim', {'host': 'worker' if args.profile == 'single' else 'windows'})
+                    if login.tick():
+                        time.sleep(1)
+                        continue
+                    step = call('claim', {'host': 'worker' if args.profile == 'single' else 'windows'}) if len(active)<3 else None
                     if step:
                         # API keys supplied to the SSH service are memory-only and intentionally not copied.
-                        run(step, call, providers=providers)
+                        active.add(step['id'])
+                        def work(s):
+                            try: run(s, call, providers=providers)
+                            finally: active.discard(s['id'])
+                        threading.Thread(target=work,args=(step,),daemon=True).start()
+                elif login.process: login.close()
                 time.sleep(1)
         finally:
             stop.set()
             thread.join(timeout=5)
+            login.close()
             cleanup()
             heartbeat(store, 'worker', {'time': 0})
             store.close()

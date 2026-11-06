@@ -1,7 +1,7 @@
 export type Task = {workflow?:string;login_url?:string;login_state?:string;login_error?:string;project_id?:string;workspace_id?:string;archived?:number;authority?:string;execution_mode?:'read-only'|'workspace-write';id:string;title:string;prompt:string;status:string;created:string;revision:number;workspace:string;acceptance:string;demo:number};
 export type Project = {id:string;revision:number;name:string;repo_path:string;repo_identity:string;base_commit:string;documents:string[];rules:string;local_repo_path?:string;offline_ready?:boolean};
 export type Workspace = {id:string;task_id:string;path:string;branch:string;base_commit:string};
-export type Step = {instruction?:string;lease?:number|null;model?:string;effort?:string;id:string;task_id:string;position:number;role:string;agent:string;host:string;status:string;output:string;session?:string;error?:string};
+export type Step = {node_key?:string;dependencies?:string;access?:string;browser_mode?:string;instruction?:string;lease?:number|null;model?:string;effort?:string;id:string;task_id:string;position:number;role:string;agent:string;host:string;status:string;output:string;session?:string;error?:string};
 export type Event = {event_id:string;task_id:string;step_id?:string;sequence_number:number;agent_type:string;host_id:string;timestamp_utc:string;event_type:string;status:string;output_summary:string};
 export type Artifact = {step_id?:string;task_title?:string;summary?:string;versions?:number;id:string;task_id:string;name:string;sha256:string;size:number;created:string;content?:string};
 export type History = {id:string;host:string;agent:string;session:string;timestamp:string;summary:string;source:string;offset:number;hash:string};
